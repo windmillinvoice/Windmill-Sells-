@@ -1,0 +1,3159 @@
+<!DOCTYPE html>
+<!--
+=====================================================================
+  WINDMILL CAFE — SALES MANAGER MONITORING SYSTEM
+  Single-file build (HTML + Tailwind + Chart.js + Firebase RTDB)
+  ---------------------------------------------------------------
+  PURPOSE: Track field activities of Sales Managers.
+  TWO ACTIVITY TYPES:
+    1) NEW CLIENT  — manager discovered a new shop, creates profile
+    2) CLIENT VISIT — manager visited an existing client (follow-up)
+  Built for the boss to see, at a glance:
+    • Which manager worked today
+    • How many new clients were added
+    • How many client visits were completed
+    • Manager performance ranking
+=====================================================================
+-->
+<html lang="en" class="dark">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta name="theme-color" content="#0e1218" />
+<title>Windmill • Sales Manager Monitor</title>
+
+<!-- ============ LIBRARIES ============ -->
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
+
+<!-- ============ FONTS ============ -->
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+
+<!-- ============ TAILWIND CONFIG ============ -->
+<script>
+  tailwind.config = {
+    darkMode: 'class',
+    theme: {
+      extend: {
+        fontFamily: {
+          display: ['Fraunces', 'serif'],
+          sans: ['"Plus Jakarta Sans"', 'sans-serif'],
+        },
+        colors: {
+          brand: {
+            50:'#fdf6ec',100:'#f8e7cc',200:'#f0cd99',300:'#e7b066',
+            400:'#e0a458',500:'#d98e44',600:'#c2742f',700:'#9c5a26',
+            800:'#7a4621',900:'#5f371d',
+          },
+        },
+      },
+    },
+  };
+</script>
+
+<!-- ============ CUSTOM THEME + GLASSMORPHISM ============ -->
+<style>
+  :root {
+    --bg-0:#f4efe7; --bg-1:#ece4d6; --surface:rgba(255,255,255,.62);
+    --surface-solid:#ffffff; --border:rgba(120,90,50,.16); --text:#2b2117;
+    --text-soft:#6f6353; --shadow:0 18px 50px -20px rgba(90,60,20,.35);
+    --glass-blur:18px;
+    --accent-new:#34d399;     /* green — NEW CLIENT */
+    --accent-visit:#60a5fa;   /* blue — CLIENT VISIT */
+  }
+  html.dark {
+    --bg-0:#0c1016; --bg-1:#11161f; --surface:rgba(24,31,42,.58);
+    --surface-solid:#161d28; --border:rgba(224,164,88,.14); --text:#f1ece3;
+    --text-soft:#9aa3b2; --shadow:0 24px 60px -22px rgba(0,0,0,.7);
+    --glass-blur:20px;
+  }
+  * { -webkit-tap-highlight-color: transparent; }
+  body {
+    font-family:'Plus Jakarta Sans',sans-serif; color:var(--text);
+    background:
+      radial-gradient(1200px 600px at 88% -8%, rgba(224,164,88,.18), transparent 60%),
+      radial-gradient(900px 500px at -5% 105%, rgba(86,148,140,.16), transparent 55%),
+      linear-gradient(160deg, var(--bg-0), var(--bg-1));
+    background-attachment: fixed; min-height:100vh; overflow-x:hidden;
+  }
+  .font-display{ font-family:'Fraunces',serif; }
+
+  /* grain overlay for depth */
+  body::after{
+    content:""; position:fixed; inset:0; pointer-events:none; z-index:0; opacity:.04;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  }
+
+  .glass{
+    background:var(--surface); backdrop-filter:blur(var(--glass-blur));
+    -webkit-backdrop-filter:blur(var(--glass-blur));
+    border:1px solid var(--border); box-shadow:var(--shadow);
+  }
+  .glass-soft{
+    background:var(--surface); backdrop-filter:blur(12px);
+    -webkit-backdrop-filter:blur(12px); border:1px solid var(--border);
+  }
+  .text-soft{ color:var(--text-soft); }
+  .border-glass{ border-color:var(--border); }
+
+  /* scrollbar */
+  ::-webkit-scrollbar{ width:10px; height:10px; }
+  ::-webkit-scrollbar-track{ background:transparent; }
+  ::-webkit-scrollbar-thumb{ background:rgba(224,164,88,.35); border-radius:20px; border:2px solid transparent; background-clip:content-box; }
+  ::-webkit-scrollbar-thumb:hover{ background:rgba(224,164,88,.6); background-clip:content-box; }
+
+  /* animations */
+  @keyframes fadeUp{ from{opacity:0; transform:translateY(14px);} to{opacity:1; transform:translateY(0);} }
+  @keyframes pop{ 0%{transform:scale(.96); opacity:0;} 100%{transform:scale(1); opacity:1;} }
+  @keyframes float{ 0%,100%{transform:translateY(0);} 50%{transform:translateY(-7px);} }
+  @keyframes spin{ to{ transform:rotate(360deg);} }
+  @keyframes pulseDot{ 0%,100%{ box-shadow:0 0 0 0 rgba(52,211,153,.55);} 50%{ box-shadow:0 0 0 6px rgba(52,211,153,0);} }
+  @keyframes slideInRight{ from{ transform:translateX(120%); opacity:0;} to{ transform:translateX(0); opacity:1;} }
+
+  .animate-fadeUp{ animation:fadeUp .5s cubic-bezier(.2,.7,.3,1) both; }
+  .animate-pop{ animation:pop .35s cubic-bezier(.2,.7,.3,1) both; }
+  .float{ animation:float 5s ease-in-out infinite; }
+  .stagger > *{ animation:fadeUp .5s cubic-bezier(.2,.7,.3,1) both; }
+  .stagger > *:nth-child(1){animation-delay:.04s;} .stagger > *:nth-child(2){animation-delay:.10s;}
+  .stagger > *:nth-child(3){animation-delay:.16s;} .stagger > *:nth-child(4){animation-delay:.22s;}
+  .stagger > *:nth-child(5){animation-delay:.28s;} .stagger > *:nth-child(6){animation-delay:.34s;}
+  .stagger > *:nth-child(7){animation-delay:.40s;} .stagger > *:nth-child(8){animation-delay:.46s;}
+
+  .card-hover{ transition:transform .35s cubic-bezier(.2,.7,.3,1), box-shadow .35s; }
+  .card-hover:hover{ transform:translateY(-5px); box-shadow:0 30px 60px -24px rgba(0,0,0,.55); }
+
+  .live-dot{ width:9px; height:9px; border-radius:50%; background:#34d399; animation:pulseDot 2s infinite; }
+  .offline-dot{ width:9px; height:9px; border-radius:50%; background:#94a3b8; }
+
+  .nav-item{ transition:all .25s; position:relative; }
+  .nav-item.active{ background:linear-gradient(90deg, rgba(224,164,88,.22), rgba(224,164,88,.05)); color:var(--text); }
+  .nav-item.active::before{ content:""; position:absolute; left:0; top:18%; height:64%; width:3px; border-radius:4px; background:#e0a458; }
+  .nav-item:not(.active):hover{ background:rgba(224,164,88,.10); }
+
+  input,select,textarea{
+    background:transparent; color:var(--text); border:1px solid var(--border);
+    border-radius:12px; padding:.6rem .8rem; width:100%; outline:none; transition:.2s;
+    font-size:.9rem;
+  }
+  input:focus,select:focus,textarea:focus{ border-color:#e0a458; box-shadow:0 0 0 3px rgba(224,164,88,.18); }
+  select option{ background:var(--surface-solid); color:var(--text); }
+  label{ font-size:.74rem; font-weight:600; color:var(--text-soft); text-transform:uppercase; letter-spacing:.04em; }
+
+  .btn{ display:inline-flex; align-items:center; gap:.5rem; border-radius:12px; font-weight:600; transition:.25s; cursor:pointer; font-size:.88rem; }
+  .btn-primary{ background:linear-gradient(135deg,#e0a458,#c2742f); color:#1a120a; box-shadow:0 10px 26px -10px rgba(224,164,88,.7); }
+  .btn-primary:hover{ transform:translateY(-2px); box-shadow:0 16px 34px -10px rgba(224,164,88,.85); }
+  .btn-ghost{ background:rgba(224,164,88,.10); color:var(--text); border:1px solid var(--border); }
+  .btn-ghost:hover{ background:rgba(224,164,88,.18); }
+  .btn-new{ background:linear-gradient(135deg,#34d399,#10b981); color:#022c1c; box-shadow:0 10px 26px -10px rgba(52,211,153,.65); }
+  .btn-new:hover{ transform:translateY(-2px); box-shadow:0 16px 34px -10px rgba(52,211,153,.85); }
+  .btn-visit{ background:linear-gradient(135deg,#60a5fa,#3b82f6); color:#0a1929; box-shadow:0 10px 26px -10px rgba(96,165,250,.65); }
+  .btn-visit:hover{ transform:translateY(-2px); box-shadow:0 16px 34px -10px rgba(96,165,250,.85); }
+
+  .badge{ font-size:.68rem; font-weight:700; padding:.2rem .55rem; border-radius:999px; letter-spacing:.02em; }
+  .badge-new{ background:rgba(52,211,153,.16); color:#34d399; }
+  .badge-visit{ background:rgba(96,165,250,.16); color:#60a5fa; }
+
+  .modal-scroll{ max-height:88vh; }
+  .view{ display:none; } .view.active{ display:block; animation:fadeUp .45s cubic-bezier(.2,.7,.3,1) both; }
+
+  .toast{ animation:slideInRight .4s cubic-bezier(.2,.7,.3,1) both; }
+  .spinner{ width:42px; height:42px; border-radius:50%; border:3px solid rgba(224,164,88,.25); border-top-color:#e0a458; animation:spin .8s linear infinite; }
+
+  /* searchable dropdown */
+  .combo-list{ position:absolute; top:100%; left:0; right:0; max-height:240px; overflow-y:auto;
+    background:var(--surface-solid); border:1px solid var(--border); border-radius:12px; margin-top:4px;
+    box-shadow:0 20px 40px -16px rgba(0,0,0,.4); z-index:30; }
+  .combo-item{ padding:.6rem .8rem; cursor:pointer; border-bottom:1px solid var(--border); }
+  .combo-item:last-child{ border-bottom:0; }
+  .combo-item:hover, .combo-item.hl{ background:rgba(224,164,88,.12); }
+
+  @media (max-width:1023px){
+    #sidebar{ position:fixed; left:0; top:0; bottom:0; transform:translateX(-105%); transition:transform .35s cubic-bezier(.2,.7,.3,1); z-index:60; }
+    #sidebar.open{ transform:translateX(0); }
+    #scrim.show{ opacity:1; pointer-events:auto; }
+  }
+  #scrim{ opacity:0; pointer-events:none; transition:opacity .3s; }
+
+  .hide{ display:none !important; }
+
+  /* ============ BRAND LOGO MARK ============ */
+  .logo-mark{ display:inline-block; flex-shrink:0; line-height:0; }
+  .logo-mark svg{ display:block; width:100%; height:100%; }
+</style>
+</head>
+<body class="relative">
+
+<!-- ===================== GLOBAL LOADER ===================== -->
+<div id="bootLoader" class="fixed inset-0 z-[200] flex flex-col items-center justify-center" style="background:linear-gradient(160deg,var(--bg-0),var(--bg-1));">
+  <div class="float logo-mark mb-4" style="width:72px;height:72px">
+    <svg viewBox="0 0 120 120" aria-label="Windmill logo">
+      <rect width="120" height="120" rx="24" fill="#1a120a"/>
+      <path d="M28,40 L42,90 L60,50 L78,90 L92,40" stroke="#e0a458" stroke-width="9" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+      <circle cx="98" cy="32" r="2.5" fill="#e0a458" opacity="0.7"/>
+      <circle cx="106" cy="40" r="1.5" fill="#e0a458" opacity="0.5"/>
+    </svg>
+  </div>
+  <div class="spinner mb-5"></div>
+  <div class="font-display text-2xl font-semibold">Windmill</div>
+  <div class="text-soft text-sm mt-1">Sales Manager Monitoring System</div>
+</div>
+
+<!-- ===================== LOGIN SCREEN ===================== -->
+<div id="loginScreen" class="hide fixed inset-0 z-[120] flex items-center justify-center p-4">
+  <div class="absolute inset-0 -z-10" style="background:
+      radial-gradient(900px 500px at 80% 0%, rgba(224,164,88,.20), transparent 60%),
+      radial-gradient(700px 500px at 10% 100%, rgba(86,148,140,.18), transparent 55%);"></div>
+
+  <div class="glass rounded-3xl w-full max-w-md p-8 animate-pop">
+    <div class="flex items-center gap-3 mb-1">
+      <div class="float logo-mark" style="width:44px;height:44px">
+        <svg viewBox="0 0 120 120" aria-label="Windmill logo">
+          <rect width="120" height="120" rx="24" fill="#1a120a"/>
+          <path d="M28,40 L42,90 L60,50 L78,90 L92,40" stroke="#e0a458" stroke-width="9" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+          <circle cx="98" cy="32" r="2.5" fill="#e0a458" opacity="0.7"/>
+          <circle cx="106" cy="40" r="1.5" fill="#e0a458" opacity="0.5"/>
+        </svg>
+      </div>
+      <div>
+        <h1 class="font-display text-2xl font-bold leading-none">Windmill Cafe</h1>
+        <p class="text-soft text-xs mt-1">Sales Manager Monitoring System</p>
+      </div>
+    </div>
+
+    <div class="mt-7 space-y-4">
+      <div>
+        <label>Username</label>
+        <input id="loginUser" type="text" placeholder="e.g. admin" class="mt-1" autocomplete="username" />
+      </div>
+      <div>
+        <label>Password</label>
+        <input id="loginPass" type="password" placeholder="••••••••" class="mt-1" autocomplete="current-password" />
+      </div>
+      <div id="loginError" class="hide text-rose-400 text-sm font-medium"></div>
+      <button id="loginBtn" class="btn btn-primary w-full justify-center py-3">Sign In</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===================== APP SHELL ===================== -->
+<div id="app" class="hide relative z-10 min-h-screen lg:flex">
+
+  <!-- mobile scrim -->
+  <div id="scrim" class="lg:hidden fixed inset-0 bg-black/50 z-50"></div>
+
+  <!-- ============ SIDEBAR ============ -->
+  <aside id="sidebar" class="glass lg:rounded-r-3xl w-[268px] shrink-0 flex flex-col lg:m-3 lg:mr-0 lg:h-[calc(100vh-1.5rem)]">
+    <div class="p-5 flex items-center gap-3 border-b border-glass">
+      <div class="float logo-mark" style="width:36px;height:36px">
+        <svg viewBox="0 0 120 120" aria-label="Windmill logo">
+          <rect width="120" height="120" rx="24" fill="#1a120a"/>
+          <path d="M28,40 L42,90 L60,50 L78,90 L92,40" stroke="#e0a458" stroke-width="9" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+          <circle cx="98" cy="32" r="2.5" fill="#e0a458" opacity="0.7"/>
+          <circle cx="106" cy="40" r="1.5" fill="#e0a458" opacity="0.5"/>
+        </svg>
+      </div>
+      <div>
+        <div class="font-display text-lg font-bold leading-none">Windmill</div>
+        <div class="text-soft text-[11px] mt-0.5">Manager Monitor</div>
+      </div>
+    </div>
+
+    <nav class="flex-1 overflow-y-auto p-3 space-y-1" id="navMenu"></nav>
+
+    <div class="p-3 border-t border-glass">
+      <div id="sideUser" class="glass-soft rounded-2xl p-3 flex items-center gap-3">
+        <div id="sideAvatar" class="w-10 h-10 rounded-full grid place-items-center font-bold text-sm shrink-0" style="background:linear-gradient(135deg,#e0a458,#c2742f); color:#1a120a;">--</div>
+        <div class="min-w-0 flex-1">
+          <div id="sideName" class="text-sm font-semibold truncate">User</div>
+          <div id="sideRole" class="text-soft text-[11px] truncate">role</div>
+        </div>
+      </div>
+      <button id="myProfileBtn" class="btn btn-ghost w-full justify-center mt-2 py-2 text-sm">👤 My Profile</button>
+      <button id="logoutBtn" class="btn btn-ghost w-full justify-center mt-1 py-2 text-sm">⎋ Sign Out</button>
+    </div>
+  </aside>
+
+  <!-- ============ MAIN ============ -->
+  <main class="flex-1 min-w-0 flex flex-col lg:h-[calc(100vh-1.5rem)] lg:my-3 lg:overflow-hidden">
+
+    <!-- top bar -->
+    <header class="glass lg:rounded-2xl m-3 mb-0 lg:mt-0 px-4 py-3 flex items-center gap-3 sticky top-0 z-30">
+      <button id="menuToggle" aria-label="Open menu" class="lg:hidden btn btn-ghost p-2.5 text-lg">☰</button>
+
+      <div class="flex-1 min-w-0">
+        <h2 id="pageTitle" class="font-display text-xl sm:text-2xl font-bold leading-none truncate">Dashboard</h2>
+        <p id="pageSub" class="text-soft text-xs mt-1 truncate">Welcome back</p>
+      </div>
+
+      <!-- live status -->
+      <div class="hidden md:flex items-center gap-2 glass-soft rounded-xl px-3 py-2">
+        <span id="netDot" class="live-dot"></span>
+        <span id="netText" class="text-xs font-semibold">Live</span>
+      </div>
+
+      <!-- theme -->
+      <button id="themeToggle" aria-label="Toggle theme" class="btn btn-ghost p-2.5 text-lg" title="Toggle theme">🌙</button>
+
+      <!-- notifications -->
+      <div class="relative">
+        <button id="notifBtn" aria-label="Notifications" class="btn btn-ghost p-2.5 text-lg relative">🔔
+          <span id="notifDot" class="hide absolute -top-1 -right-1 bg-rose-500 text-white text-[10px] font-bold w-5 h-5 grid place-items-center rounded-full">0</span>
+        </button>
+        <div id="notifPanel" class="hide absolute right-0 mt-2 w-80 glass rounded-2xl p-3 z-50 max-h-96 overflow-y-auto">
+          <div class="flex items-center justify-between mb-2 px-1">
+            <span class="font-semibold text-sm">Notifications</span>
+            <button id="notifClear" class="text-xs text-brand-400 font-semibold">Clear all</button>
+          </div>
+          <div id="notifList" class="space-y-2"></div>
+        </div>
+      </div>
+    </header>
+
+    <!-- scrollable content -->
+    <div class="flex-1 lg:overflow-y-auto p-3 pt-3" id="content">
+      <section id="view-dashboard" class="view active"></section>
+      <section id="view-clients"   class="view"></section>
+      <section id="view-visits"    class="view"></section>
+      <section id="view-analytics" class="view"></section>
+      <section id="view-reports"   class="view"></section>
+      <section id="view-managers"  class="view"></section>
+      <section id="view-activity"  class="view"></section>
+    </div>
+  </main>
+</div>
+
+<!-- ===================== NEW CLIENT MODAL ===================== -->
+<div id="clientModal" class="hide fixed inset-0 z-[110] flex items-end sm:items-center justify-center p-0 sm:p-4">
+  <div class="absolute inset-0 bg-black/55" data-close-client></div>
+  <div class="glass relative w-full sm:max-w-2xl rounded-t-3xl sm:rounded-3xl modal-scroll overflow-y-auto animate-pop">
+    <div class="sticky top-0 glass px-5 py-4 flex items-center justify-between border-b border-glass z-10">
+      <h3 id="clientModalTitle" class="font-display text-xl font-bold flex items-center gap-2">
+        <span class="badge badge-new">🆕 NEW CLIENT</span> Add New Client
+      </h3>
+      <button data-close-client class="btn btn-ghost p-2 text-lg">✕</button>
+    </div>
+    <form id="clientForm" class="p-5 space-y-4">
+      <input type="hidden" id="cId" />
+      <div class="grid sm:grid-cols-2 gap-4">
+        <div><label>Shop Name *</label><input id="cShop" required class="mt-1" placeholder="e.g. Bloom & Bean" /></div>
+        <div><label>Owner Name *</label><input id="cOwner" required class="mt-1" placeholder="e.g. Sara Khalid" /></div>
+        <div><label>Contact Number *</label><input id="cContact" required class="mt-1" placeholder="+971 50 …" /></div>
+        <div><label>WhatsApp Number</label><input id="cWhatsapp" class="mt-1" placeholder="+971 50 …" /></div>
+        <div class="sm:col-span-2"><label>Address *</label><input id="cAddress" required class="mt-1" placeholder="Street, building, floor…" /></div>
+        <div><label>Emirate *</label>
+          <select id="cArea" required class="mt-1">
+            <option value="">Select emirate…</option>
+            <option>Abu Dhabi</option>
+            <option>Dubai</option>
+            <option>Sharjah</option>
+            <option>Ajman</option>
+            <option>Umm Al Quwain</option>
+            <option>Ras Al Khaimah</option>
+            <option>Fujairah</option>
+          </select>
+        </div>
+        <div><label>City / Area</label><input id="cCity" class="mt-1" placeholder="e.g. Al Quoz, Dubai Marina, Khalifa City…" /></div>
+        <div id="cManagerWrap" class="hide"><label>Assign To Manager</label>
+          <select id="cManager" class="mt-1"></select>
+        </div>
+      </div>
+
+      <!-- First Meeting Details panel -->
+      <div class="glass-soft rounded-2xl p-4 space-y-3">
+        <div class="flex items-center gap-2">
+          <span class="text-base">📅</span>
+          <div class="font-semibold text-sm">First Meeting Details</div>
+        </div>
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <div><label>Date</label><input id="cMeetDate" type="date" class="mt-1" /></div>
+          <div><label>Check-In</label><input id="cIn" type="time" class="mt-1" /></div>
+          <div><label>Check-Out</label><input id="cOut" type="time" class="mt-1" /></div>
+        </div>
+      </div>
+      <div><label>General Notes</label><textarea id="cNotes" rows="2" class="mt-1" placeholder="Anything useful about this shop…"></textarea></div>
+      <div><label>First Meeting Notes *</label><textarea id="cFirstNotes" rows="3" required class="mt-1" placeholder="What was discussed in the first meeting?"></textarea></div>
+
+      <div class="flex gap-3 pt-2">
+        <button type="button" data-close-client class="btn btn-ghost flex-1 justify-center py-3">Cancel</button>
+        <button type="submit" class="btn btn-new flex-1 justify-center py-3">Save New Client</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- ===================== CLIENT VISIT MODAL ===================== -->
+<div id="visitModal" class="hide fixed inset-0 z-[110] flex items-end sm:items-center justify-center p-0 sm:p-4">
+  <div class="absolute inset-0 bg-black/55" data-close-visit></div>
+  <div class="glass relative w-full sm:max-w-2xl rounded-t-3xl sm:rounded-3xl modal-scroll overflow-y-auto animate-pop">
+    <div class="sticky top-0 glass px-5 py-4 flex items-center justify-between border-b border-glass z-10">
+      <h3 id="visitModalTitle" class="font-display text-xl font-bold flex items-center gap-2">
+        <span class="badge badge-visit">🔁 CLIENT VISIT</span> Log Client Visit
+      </h3>
+      <button data-close-visit class="btn btn-ghost p-2 text-lg">✕</button>
+    </div>
+    <form id="visitForm" class="p-5 space-y-4">
+      <input type="hidden" id="vId" />
+      <input type="hidden" id="vClientId" />
+
+      <!-- Shop / Client — free type with optional suggestions from existing clients -->
+      <div>
+        <label>Shop Name *</label>
+        <div class="relative mt-1">
+          <input id="vClientSearch" required placeholder="Type shop name (new or existing)…" autocomplete="off" />
+          <div id="vClientList" class="combo-list hide"></div>
+        </div>
+        <div id="vClientChip" class="hide mt-2 glass-soft rounded-xl p-3 flex items-start gap-3">
+          <div class="text-xl shrink-0">🏪</div>
+          <div class="flex-1 min-w-0">
+            <div id="vClientChipName" class="font-semibold text-sm truncate"></div>
+            <div id="vClientChipMeta" class="text-soft text-xs truncate"></div>
+          </div>
+          <span class="badge" style="background:#34d39922;color:#34d399">Linked</span>
+          <button type="button" id="vClientClear" class="btn btn-ghost p-1.5 text-sm" title="Unlink and edit manually">✕</button>
+        </div>
+        <div id="vManualHint" class="hide mt-2 text-soft text-[11px]">
+          ℹ️ Not in the system — saving as unregistered visit. Fill the optional details below.
+        </div>
+      </div>
+
+      <!-- Optional client details (used when not linked to existing client) -->
+      <div id="vManualFields" class="grid sm:grid-cols-2 gap-4">
+        <div><label>Owner / Contact Person</label><input id="vOwner" class="mt-1" placeholder="e.g. Sara Khalid" /></div>
+        <div><label>Contact Number</label><input id="vContact" class="mt-1" placeholder="+971 50 …" /></div>
+        <div><label>Emirate</label>
+          <select id="vArea" class="mt-1">
+            <option value="">Select emirate…</option>
+            <option>Abu Dhabi</option><option>Dubai</option><option>Sharjah</option>
+            <option>Ajman</option><option>Umm Al Quwain</option>
+            <option>Ras Al Khaimah</option><option>Fujairah</option>
+          </select>
+        </div>
+        <div><label>City / Area</label><input id="vCity" class="mt-1" placeholder="e.g. Al Quoz, Dubai Marina…" /></div>
+      </div>
+
+      <!-- Visit Timing panel -->
+      <div class="glass-soft rounded-2xl p-4 space-y-3">
+        <div class="flex items-center gap-2">
+          <span class="text-base">⏱</span>
+          <div class="font-semibold text-sm">Visit Timing</div>
+        </div>
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <div><label>Date *</label><input id="vDate" type="date" required class="mt-1" /></div>
+          <div><label>Check-In</label><input id="vIn" type="time" class="mt-1" /></div>
+          <div><label>Check-Out</label><input id="vOut" type="time" class="mt-1" /></div>
+        </div>
+      </div>
+
+      <div class="grid sm:grid-cols-2 gap-4">
+        <div><label>Order Status</label>
+          <select id="vOrderStatus" class="mt-1">
+            <option value="No Order">No Order</option>
+            <option value="Pending">Pending</option>
+            <option value="Order Placed">Order Placed</option>
+          </select>
+        </div>
+        <div><label>Visit Outcome</label>
+          <select id="vOutcome" class="mt-1">
+            <option>Successful</option>
+            <option>Follow-up Needed</option>
+            <option>No Interest</option>
+            <option>Owner Not Available</option>
+            <option>Long Discussion</option>
+          </select>
+        </div>
+        <div><label>Follow-Up Date</label><input id="vFollowDate" type="date" class="mt-1" /></div>
+        <div id="vManagerWrap" class="hide"><label>Assign To Manager</label>
+          <select id="vManager" class="mt-1"></select>
+        </div>
+      </div>
+
+      <div><label>Discussion Notes *</label><textarea id="vNotes" rows="3" required class="mt-1" placeholder="What was discussed during this visit?"></textarea></div>
+
+      <div>
+        <label>Photos (optional)</label>
+        <input id="vPhotos" type="file" accept="image/*" multiple class="mt-1" />
+        <div id="photoPreview" class="flex flex-wrap gap-2 mt-2"></div>
+      </div>
+
+      <div class="flex gap-3 pt-2">
+        <button type="button" data-close-visit class="btn btn-ghost flex-1 justify-center py-3">Cancel</button>
+        <button type="submit" class="btn btn-visit flex-1 justify-center py-3">Save Visit</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- ===================== DETAIL MODAL ===================== -->
+<div id="detailModal" class="hide fixed inset-0 z-[110] flex items-end sm:items-center justify-center p-0 sm:p-4">
+  <div class="absolute inset-0 bg-black/55" data-close-detail></div>
+  <div class="glass relative w-full sm:max-w-2xl rounded-t-3xl sm:rounded-3xl modal-scroll overflow-y-auto animate-pop">
+    <div class="sticky top-0 glass px-5 py-4 flex items-center justify-between border-b border-glass z-10">
+      <h3 id="detailModalTitle" class="font-display text-xl font-bold">Details</h3>
+      <button data-close-detail class="btn btn-ghost p-2 text-lg">✕</button>
+    </div>
+    <div id="detailBody" class="p-5"></div>
+  </div>
+</div>
+
+<!-- ===================== CONFIRM MODAL ===================== -->
+<div id="confirmModal" class="hide fixed inset-0 z-[115] flex items-center justify-center p-4">
+  <div class="absolute inset-0 bg-black/55"></div>
+  <div class="glass relative w-full max-w-sm rounded-3xl p-6 animate-pop text-center">
+    <div class="text-4xl mb-3">⚠️</div>
+    <h3 id="confirmTitle" class="font-display text-lg font-bold">Are you sure?</h3>
+    <p id="confirmText" class="text-soft text-sm mt-1">This action cannot be undone.</p>
+    <div class="flex gap-3 mt-5">
+      <button id="confirmCancel" class="btn btn-ghost flex-1 justify-center py-2.5">Cancel</button>
+      <button id="confirmOk" class="btn flex-1 justify-center py-2.5" style="background:linear-gradient(135deg,#f43f5e,#be123c);color:#fff;">Delete</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===================== TOASTS ===================== -->
+<div id="toastWrap" class="fixed top-4 right-4 z-[300] space-y-2 w-[calc(100vw-2rem)] max-w-sm"></div>
+
+<!-- ===================== APPLICATION SCRIPT ===================== -->
+<script>
+"use strict";
+/* =====================================================================
+   SECTION 1 — FIREBASE SETUP (Realtime Database)
+   The app runs on LocalStorage by default; Firebase RTDB provides
+   cross-device sync. Auth stays local (against APP_USERS).
+   ===================================================================== */
+const USE_FIREBASE = true;
+
+const firebaseConfig = {
+  apiKey: "AIzaSyDCkbPVaK2NBqhhH-Fck5YZ5ykijf9ZHE4",
+  authDomain: "windmill-marketing-team.firebaseapp.com",
+  databaseURL: "https://windmill-marketing-team-default-rtdb.firebaseio.com",
+  projectId: "windmill-marketing-team",
+  storageBucket: "windmill-marketing-team.appspot.com",
+  messagingSenderId: "0000000000",
+  appId: "windmill-marketing-team"
+};
+
+let fb = null;
+async function initFirebase(){
+  if(!USE_FIREBASE) return null;
+  const appMod  = await import("https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js");
+  const rtdbMod = await import("https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js");
+  const app = appMod.initializeApp(firebaseConfig);
+  const db  = rtdbMod.getDatabase(app);
+  fb = { app, db, rtdbMod };
+  return fb;
+}
+async function rtdbSet(path, data){
+  if(!(USE_FIREBASE && fb)) return;
+  const { ref, set } = fb.rtdbMod;
+  await set(ref(fb.db, path), data);
+}
+async function rtdbRemove(path){
+  if(!(USE_FIREBASE && fb)) return;
+  const { ref, remove } = fb.rtdbMod;
+  await remove(ref(fb.db, path));
+}
+
+/* =====================================================================
+   SECTION 2 — STORAGE KEYS, USERS, SAMPLE DATA
+   ===================================================================== */
+const LS = {
+  users:'wm_users',
+  clients:'wm_clients',          // NEW CLIENTS (master shop registry)
+  visits:'wm_client_visits',     // CLIENT VISITS (visit records)
+  activity:'wm_activity',
+  notif:'wm_notif',
+  session:'wm_session',
+  theme:'wm_theme'
+};
+
+const APP_USERS = [
+  { id:'admin',    username:'admin',    password:'admin123', name:'Windmill', role:'admin',
+    email:'boss@windmillcafe.ae', color:'#e0a458' },
+  { id:'manager1', username:'manager1', password:'pass123',  name:'Aarav Sharma',  role:'manager',
+    email:'aarav@windmillcafe.ae', color:'#56948c' },
+  { id:'manager2', username:'manager2', password:'pass123',  name:'Layla Hassan',  role:'manager',
+    email:'layla@windmillcafe.ae', color:'#c06b8e' },
+];
+
+/* ----- Sample data: realistic Dubai clients + visits ----- */
+function buildSampleClients(){
+  const today = new Date();
+  const d = off => { const x=new Date(today); x.setDate(x.getDate()+off); return x.getTime(); };
+  const data = [
+    // [shop, owner, contact, whatsapp, address, emirate, city, manager, daysAgo, notes, firstNotes]
+    ['Bloom & Bean','Sara Khalid','+971 50 112 3344','+971 50 112 3344','Shop 14, Jumeirah Beach Rd','Dubai','Jumeirah','manager1',12,
+      'Premium café, high foot traffic.','Met owner Sara. Interested in cold brew and oat milk supply. Tasting sample left.'],
+    ['The Daily Grind','Omar Farouk','+971 52 998 7766','+971 52 998 7766','Tower 3, Business Bay','Dubai','Business Bay','manager1',8,
+      'Chain of 3 cafes; HQ here.','Discussed bulk pricing for arabica beans. Sent quote for 3-location supply.'],
+    ['Spice Route','Ravi Menon','+971 55 443 2211','+971 55 443 2211','Building 12, Deira Souk','Dubai','Deira','manager2',6,
+      'Indian restaurant; tea-heavy menu.','Owner wants loose-leaf masala chai blend. Sample given for staff trial.'],
+    ['Marina Mart','Yusuf Ali','+971 56 778 9900','+971 56 778 9900','Marina Walk, Dubai Marina','Dubai','Dubai Marina','manager1',5,
+      'Supermarket; weekly bulk orders.','Manager Yusuf signed initial supply contract for pastry pre-mix.'],
+    ['Palm Pantry','Nadia Rahman','+971 50 665 4433','','Crescent Rd, Palm Jumeirah','Dubai','Palm Jumeirah','manager2',3,
+      'Boutique grocery, premium clientele.','Interested in artisan syrup range. Owner asked for full catalogue.'],
+    ['Sunrise Hotel','Daniel Cruz','+971 54 220 1188','+971 54 220 1188','Al Barsha 1','Dubai','Al Barsha','manager2',2,
+      '4-star hotel, F&B contract opportunity.','F&B Manager Daniel wants quote for in-room coffee pods.'],
+    ['Green Leaf','Mei Lin','+971 52 339 5566','+971 52 339 5566','Cluster D, JLT','Dubai','JLT','manager1',1,
+      'Wellness café, organic focus.','Mei interested in herbal tea range. Will sample for 2 weeks then decide.'],
+    ['Corner Café','Hassan Noor','+971 50 887 1290','','Al Quoz Industrial 3','Dubai','Al Quoz','manager1',0,
+      'Small café in industrial area; loyal locals.','Met today. Owner Hassan signed up for monthly coffee bean supply.'],
+    ['Urban Eats','Priya Nair','+971 55 102 4477','+971 55 102 4477','Downtown Dubai','Dubai','Downtown','manager2',0,
+      'Trendy restaurant; high turnover.','First meeting today. Priya excited about signature syrups for cocktails.'],
+  ];
+  return data.map((r,i)=>({
+    id:'c'+(1000+i),
+    shop:r[0], owner:r[1], contact:r[2], whatsapp:r[3],
+    address:r[4], area:r[5], city:r[6], manager:r[7],
+    notes:r[9], firstMeetingNotes:r[10],
+    createdAt: d(-r[8]),
+    updatedAt: d(-r[8]),
+  }));
+}
+
+function buildSampleVisits(clients){
+  const today = new Date();
+  const d = off => { const x=new Date(today); x.setDate(x.getDate()+off); return x.toISOString().slice(0,10); };
+  const ts = off => { const x=new Date(today); x.setDate(x.getDate()+off); return x.getTime(); };
+  const out=[]; let idc=2000;
+  // [clientShop, daysAgo, manager, checkin, durMin, orderStatus, outcome, followDays, notes]
+  const visits=[
+    ['Bloom & Bean',-1,'manager1','09:15',75,'Order Placed','Successful',7,'Confirmed weekly cold brew order. Sara very happy.'],
+    ['Bloom & Bean',-7,'manager1','10:30',60,'Pending','Follow-up Needed',3,'Reviewed sample feedback. Decision pending.'],
+    ['The Daily Grind',-2,'manager1','10:40',50,'Order Placed','Successful',14,'Locked in bulk arabica order for all 3 branches.'],
+    ['The Daily Grind',-5,'manager1','14:00',40,'Pending','Follow-up Needed',5,'Discussed seasonal menu. Quote sent.'],
+    ['Spice Route',-1,'manager2','11:00',45,'No Order','No Interest',0,'Owner not ready to switch suppliers.'],
+    ['Marina Mart',-1,'manager1','14:10',40,'Order Placed','Successful',10,'Restock confirmed. Delivery scheduled.'],
+    ['Marina Mart',-4,'manager1','13:00',35,'Order Placed','Successful',14,'Initial pastry mix delivery went well.'],
+    ['Palm Pantry',-1,'manager2','09:50',65,'Pending','Follow-up Needed',2,'Showed full syrup catalogue. Nadia reviewing.'],
+    ['Sunrise Hotel',-2,'manager2','13:20',55,'Order Placed','Successful',21,'Coffee pod contract signed for 6 months.'],
+    ['Green Leaf',-2,'manager1','08:55',80,'Pending','Long Discussion',7,'Long talk about wellness positioning. Sampling started.'],
+    ['Green Leaf',0,'manager1','11:30',45,'Pending','Follow-up Needed',3,'Mid-sample check-in. Mei needs more time.'],
+    ['Spice Route',0,'manager2','12:15',35,'No Order','Owner Not Available',1,'Owner travelling. Spoke with manager.'],
+    ['The Daily Grind',0,'manager1','15:30',50,'Order Placed','Successful',7,'Today\'s order confirmed.'],
+    ['Palm Pantry',0,'manager2','16:00',40,'Pending','Follow-up Needed',2,'Quick check-in. Nadia still deciding.'],
+  ];
+  visits.forEach(v=>{
+    const cl=clients.find(c=>c.shop===v[0]); if(!cl) return;
+    const inT=v[3]; const dur=v[4];
+    const [h,m]=inT.split(':').map(Number); const tot=h*60+m+dur;
+    const outT=String(Math.floor(tot/60)%24).padStart(2,'0')+':'+String(tot%60).padStart(2,'0');
+    out.push({
+      id:'v'+(idc++),
+      clientId:cl.id,
+      date:d(v[1]),
+      checkin:inT, checkout:outT,
+      orderStatus:v[5],
+      outcome:v[6],
+      followDate: v[7]>0 ? d(v[1]+v[7]) : '',
+      notes:v[8],
+      photos:[], gps:null,
+      manager:v[2],
+      createdAt: ts(v[1]),
+      updatedAt: ts(v[1]),
+    });
+  });
+  return out.sort((a,b)=>b.createdAt-a.createdAt);
+}
+
+/* =====================================================================
+   SECTION 3 — DATA LAYER (LocalStorage  ⇄  Firebase RTDB)
+   Emits 'datachanged' on every change so UI auto-refreshes.
+   ===================================================================== */
+const Bus = new EventTarget();
+const emit = (type,detail) => Bus.dispatchEvent(new CustomEvent(type,{detail}));
+
+const Store = {
+  read(key, fallback){ try{ const v=localStorage.getItem(key); return v?JSON.parse(v):fallback; }catch(e){ return fallback; } },
+  write(key, val){ try{ localStorage.setItem(key, JSON.stringify(val)); }catch(e){ Toast.show('Storage full — media may be too large','error'); } },
+};
+
+const DB = {
+  getUsers(){ return Store.read(LS.users, APP_USERS); },
+
+  /* ---- CLIENTS ---- */
+  getClients(){ return Store.read(LS.clients, []); },
+  async saveClient(c){
+    const all=this.getClients(); const i=all.findIndex(x=>x.id===c.id);
+    c.updatedAt=Date.now();
+    if(i>=0) all[i]=c; else { c.createdAt=Date.now(); all.unshift(c); }
+    Store.write(LS.clients, all);
+    if(USE_FIREBASE && fb){ try{ await rtdbSet('clients/'+c.id, c); }catch(e){console.warn(e);} }
+    emit('datachanged',{scope:'clients'});
+    return c;
+  },
+  async deleteClient(id){
+    // identify which visits will be cascade-removed (we need their ids to wipe them from Firebase too)
+    const orphanedVisits = this.getVisits().filter(v=>v.clientId===id);
+    const all=this.getClients().filter(x=>x.id!==id);
+    Store.write(LS.clients, all);
+    // cascade-delete visits for this client locally
+    const visitsRemaining=this.getVisits().filter(v=>v.clientId!==id);
+    Store.write(LS.visits, visitsRemaining);
+    if(USE_FIREBASE && fb){
+      try{ await rtdbRemove('clients/'+id); }catch(e){console.warn(e);}
+      // cascade-delete each orphaned visit from Firebase, otherwise the RTDB listener pulls them back on next sync
+      for(const v of orphanedVisits){
+        try{ await rtdbRemove('clientVisits/'+v.id); }catch(e){console.warn(e);}
+      }
+    }
+    emit('datachanged',{scope:'clients'});
+  },
+
+  /* ---- VISITS ---- */
+  getVisits(){ return Store.read(LS.visits, []); },
+  async saveVisit(v){
+    const all=this.getVisits(); const i=all.findIndex(x=>x.id===v.id);
+    v.updatedAt=Date.now();
+    if(i>=0) all[i]=v; else { v.createdAt=Date.now(); all.unshift(v); }
+    Store.write(LS.visits, all);
+    if(USE_FIREBASE && fb){ try{ await rtdbSet('clientVisits/'+v.id, v); }catch(e){console.warn(e);} }
+    emit('datachanged',{scope:'visits'});
+    return v;
+  },
+  async deleteVisit(id){
+    const all=this.getVisits().filter(x=>x.id!==id);
+    Store.write(LS.visits, all);
+    if(USE_FIREBASE && fb){ try{ await rtdbRemove('clientVisits/'+id); }catch(e){console.warn(e);} }
+    emit('datachanged',{scope:'visits'});
+  },
+
+  /* ---- ACTIVITY LOG ---- */
+  getActivity(){ return Store.read(LS.activity, []); },
+  async log(action, meta){
+    const all=this.getActivity();
+    let userName='System', userId='sys';
+    if(State.user){
+      userId=State.user.id;
+      const fresh=this.getUsers().find(u=>u.id===State.user.id);
+      userName=fresh?fresh.name:State.user.name;
+    }
+    const entry={ id:'a'+Date.now()+Math.random().toString(36).slice(2,6),
+      user:userName, userId, action, meta:meta||'', ts:Date.now() };
+    all.unshift(entry); if(all.length>200) all.length=200;
+    Store.write(LS.activity, all);
+    if(USE_FIREBASE && fb){ try{ await rtdbSet('activityLogs/'+entry.id, entry); }catch(e){} }
+    emit('datachanged',{scope:'activity'});
+  },
+
+  /* ---- NOTIFICATIONS ---- */
+  getNotif(){ return Store.read(LS.notif, []); },
+  pushNotif(title, body, type){
+    const all=this.getNotif();
+    all.unshift({ id:uid('n'), title, body, type:type||'info', ts:Date.now(), read:false });
+    if(all.length>50) all.length=50;
+    Store.write(LS.notif, all);
+    emit('datachanged',{scope:'notif'});
+  },
+  clearNotif(){ Store.write(LS.notif, []); emit('datachanged',{scope:'notif'}); },
+};
+
+/* cross-tab realtime */
+window.addEventListener('storage', e=>{
+  if(Object.values(LS).includes(e.key)){ emit('datachanged',{scope:'external'}); }
+});
+
+/* RTDB listeners */
+async function attachRtdbSync(){
+  if(!(USE_FIREBASE && fb)) return;
+  const { ref, onValue } = fb.rtdbMod;
+
+  onValue(ref(fb.db, 'clients'), snap=>{
+    const val=snap.val();
+    const arr=val?Object.values(val).sort((a,b)=>(b.createdAt||0)-(a.createdAt||0)):[];
+    Store.write(LS.clients, arr); emit('datachanged',{scope:'clients'});
+  }, err=>console.warn('RTDB clients error:',err));
+
+  onValue(ref(fb.db, 'clientVisits'), snap=>{
+    const val=snap.val();
+    const arr=val?Object.values(val).sort((a,b)=>(b.createdAt||0)-(a.createdAt||0)):[];
+    Store.write(LS.visits, arr); emit('datachanged',{scope:'visits'});
+  }, err=>console.warn('RTDB visits error:',err));
+
+  onValue(ref(fb.db, 'activityLogs'), snap=>{
+    const val=snap.val();
+    const arr=val?Object.values(val).sort((a,b)=>(b.ts||0)-(a.ts||0)):[];
+    Store.write(LS.activity, arr); emit('datachanged',{scope:'activity'});
+  }, err=>console.warn('RTDB activity error:',err));
+
+  onValue(ref(fb.db, 'appUsers'), snap=>{
+    const val=snap.val(); if(!val) return;
+    const remote=Object.values(val);
+    const local=Store.read(LS.users, APP_USERS);
+    const merged=local.map(lu=>{ const ru=remote.find(x=>x.id===lu.id); return ru?{...lu,...ru}:lu; });
+    remote.forEach(ru=>{ if(!merged.find(x=>x.id===ru.id)) merged.push(ru); });
+    Store.write(LS.users, merged);
+    const sess=Store.read(LS.session, null);
+    if(sess){
+      const fresh=merged.find(u=>u.id===sess.id);
+      if(fresh && (fresh.name!==sess.name||fresh.username!==sess.username||fresh.color!==sess.color)){
+        const { password:_, ...safe }=fresh;
+        Store.write(LS.session, safe);
+        if(State.user && State.user.id===sess.id){
+          State.user.name=safe.name; State.user.username=safe.username; State.user.color=safe.color;
+          $('#sideName').textContent=safe.name;
+          $('#sideAvatar').textContent=initials(safe.name);
+          $('#sideAvatar').style.background=safe.color;
+        }
+      }
+    }
+    emit('datachanged',{scope:'users'});
+  }, err=>console.warn('RTDB users error:',err));
+}
+
+/* =====================================================================
+   SECTION 4 — AUTH & SESSION
+   ===================================================================== */
+const Auth = {
+  current(){ return Store.read(LS.session, null); },
+  async login(username, password){
+    if(USE_FIREBASE && fb){
+      try{
+        const { ref, get } = fb.rtdbMod;
+        const snap = await get(ref(fb.db, 'appUsers'));
+        if(snap.exists()){
+          const remote=Object.values(snap.val());
+          const local=Store.read(LS.users, APP_USERS);
+          const merged=local.map(lu=>{ const ru=remote.find(x=>x.id===lu.id); return ru?{...lu,...ru}:lu; });
+          remote.forEach(ru=>{ if(!merged.find(x=>x.id===ru.id)) merged.push(ru); });
+          Store.write(LS.users, merged);
+        }
+      }catch(e){ console.warn('Could not fetch fresh users:',e); }
+    }
+    const u = DB.getUsers().find(x=>x.username===username && x.password===password);
+    if(!u) throw new Error('Invalid username or password');
+    const { password:_, ...safe } = u;
+    Store.write(LS.session, safe); return safe;
+  },
+  logout(){ localStorage.removeItem(LS.session); }
+};
+
+/* =====================================================================
+   SECTION 5 — STATE & UTILITIES
+   ===================================================================== */
+const State = {
+  user:null, view:'dashboard', charts:{},
+  clientFilters:{ manager:'all', area:'all', q:'' },
+  visitFilters:{ manager:'all', outcome:'all', q:'' },
+  activityFilters:{ type:'all' },
+  reportPeriod:'month',
+  page:1, pageSize:9,
+};
+
+const $  = (s,el=document)=>el.querySelector(s);
+const $$ = (s,el=document)=>Array.from(el.querySelectorAll(s));
+const esc = s => String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const uid = (p='x') => p+Date.now().toString(36)+Math.random().toString(36).slice(2,6);
+
+const Fmt = {
+  date(d){ if(!d) return '—'; const x=new Date(d+'T00:00:00'); return x.toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'}); },
+  dateShort(d){ if(!d) return '—'; const x=new Date(d+'T00:00:00'); return x.toLocaleDateString('en-GB',{day:'2-digit',month:'short'}); },
+  rel(ts){ const s=(Date.now()-ts)/1000; if(s<60)return 'just now'; if(s<3600)return Math.floor(s/60)+'m ago';
+    if(s<86400)return Math.floor(s/3600)+'h ago'; return Math.floor(s/86400)+'d ago'; },
+  duration(obj){
+    const ci=obj.checkin||obj.checkIn, co=obj.checkout||obj.checkOut;
+    if(!ci||!co) return 0;
+    const [h1,m1]=ci.split(':').map(Number), [h2,m2]=co.split(':').map(Number);
+    let d=(h2*60+m2)-(h1*60+m1); if(d<0) d+=1440; return d;
+  },
+  durationLabel(obj){
+    const m=this.duration(obj); if(!m) return '';
+    if(m<60) return m+' min';
+    const h=Math.floor(m/60), rem=m%60;
+    return rem?`${h}h ${rem}m`:`${h}h`;
+  },
+  time(t){ if(!t) return '—'; return t; }, // already HH:MM
+};
+
+const Toast = {
+  show(msg, type='success'){
+    const wrap=$('#toastWrap');
+    const colors={ success:'#34d399', error:'#f43f5e', info:'#e0a458', warn:'#f59e0b' };
+    const icons ={ success:'✓', error:'✕', info:'ℹ', warn:'!' };
+    const el=document.createElement('div');
+    el.className='toast glass rounded-2xl px-4 py-3 flex items-center gap-3';
+    el.innerHTML=`<span class="grid place-items-center w-7 h-7 rounded-full shrink-0 font-bold"
+        style="background:${colors[type]}22;color:${colors[type]}">${icons[type]}</span>
+      <span class="text-sm font-medium flex-1">${esc(msg)}</span>`;
+    wrap.appendChild(el);
+    setTimeout(()=>{ el.style.transition='all .4s'; el.style.opacity='0'; el.style.transform='translateX(120%)';
+      setTimeout(()=>el.remove(),400); }, 3200);
+  }
+};
+
+const todayStr = ()=> new Date().toISOString().slice(0,10);
+const todayDateOnlyMs = ()=>{ const x=new Date(); x.setHours(0,0,0,0); return x.getTime(); };
+function isSameDay(ds){ return ds===todayStr(); }
+function isThisWeek(ds){ const d=new Date(ds+'T00:00:00'), n=new Date();
+  const day=(n.getDay()+6)%7; const mon=new Date(n); mon.setDate(n.getDate()-day); mon.setHours(0,0,0,0);
+  const sun=new Date(mon); sun.setDate(mon.getDate()+6); sun.setHours(23,59,59,999); return d>=mon&&d<=sun; }
+function isThisMonth(ds){ const d=new Date(ds+'T00:00:00'), n=new Date(); return d.getMonth()===n.getMonth()&&d.getFullYear()===n.getFullYear(); }
+/* For client createdAt timestamps, convert to LOCAL date string before comparing.
+   Using toISOString() previously gave UTC, which silently miscounted "today"
+   in timezones like Dubai (UTC+4) — early-morning records fell into yesterday. */
+function tsToDate(ts){
+  const d=new Date(ts);
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+function isSameDayTs(ts){ return tsToDate(ts)===todayStr(); }
+function isThisWeekTs(ts){ return isThisWeek(tsToDate(ts)); }
+function isThisMonthTs(ts){ return isThisMonth(tsToDate(ts)); }
+
+function initials(name){ return (name||'?').split(' ').map(w=>w[0]).slice(0,2).join('').toUpperCase(); }
+
+/* Role-scoped data selectors */
+function scopedClients(){
+  let c=DB.getClients();
+  if(State.user.role!=='admin') c=c.filter(x=>x.manager===State.user.id);
+  return c;
+}
+function scopedVisits(){
+  let v=DB.getVisits();
+  if(State.user.role!=='admin') v=v.filter(x=>x.manager===State.user.id);
+  return v;
+}
+function findClient(id){ return DB.getClients().find(c=>c.id===id); }
+/* Returns shop info for a visit, falling back to the visit's snapshot fields
+   for unregistered visits (clientId is null) or when the linked client was deleted. */
+function visitShop(v){
+  if(v.clientId){
+    const c=findClient(v.clientId);
+    if(c) return c;
+  }
+  // Snapshot fallback (or stub for old data without snapshot)
+  return {
+    id:null,
+    shop: v.shop || '(unnamed)',
+    owner: v.owner || '',
+    contact: v.contact || '',
+    area: v.area || '',
+    city: v.city || '',
+    address: v.address || '',
+    _unregistered: !v.clientId
+  };
+}
+function clientLabel(idOrVisit){
+  // Accept either a clientId string or a full visit object
+  if(typeof idOrVisit==='string'){
+    const c=findClient(idOrVisit); return c?c.shop:'(deleted client)';
+  }
+  // visit object → use snapshot
+  return visitShop(idOrVisit).shop || '(unknown shop)';
+}
+
+/* =====================================================================
+   SECTION 6 — STATS ENGINE
+   For each manager (and aggregate), compute:
+     • new clients (by createdAt) today/week/month
+     • client visits (by date) today/week/month
+     • follow-ups (pending = followDate >= today; overdue = past)
+   ===================================================================== */
+function computeStatsFor(managerId){
+  const allC = DB.getClients();
+  const allV = DB.getVisits();
+  const c = managerId ? allC.filter(x=>x.manager===managerId) : allC;
+  const v = managerId ? allV.filter(x=>x.manager===managerId) : allV;
+  const today=todayStr();
+  return {
+    newClients: c.length,
+    newClientsToday: c.filter(x=>isSameDayTs(x.createdAt)).length,
+    newClientsWeek:  c.filter(x=>isThisWeekTs(x.createdAt)).length,
+    newClientsMonth: c.filter(x=>isThisMonthTs(x.createdAt)).length,
+    visits: v.length,
+    visitsToday: v.filter(x=>isSameDay(x.date)).length,
+    visitsWeek:  v.filter(x=>isThisWeek(x.date)).length,
+    visitsMonth: v.filter(x=>isThisMonth(x.date)).length,
+    ordersPlaced: v.filter(x=>x.orderStatus==='Order Placed').length,
+    followUpsPending: v.filter(x=>x.followDate && x.followDate>=today).length,
+    followUpsOverdue: v.filter(x=>x.followDate && x.followDate<today).length,
+    avgVisitMin: (function(){ const ds=v.map(Fmt.duration).filter(d=>d>0); return ds.length?Math.round(ds.reduce((a,b)=>a+b,0)/ds.length):0; })(),
+  };
+}
+
+/* Manager cards with simple performance score:
+   2 points per new client + 1 point per visit + 1 per order placed.
+   Normalised to a 0-100 bar for display (cap at 50 raw points = 100%). */
+function managerCards(){
+  const users=DB.getUsers().filter(u=>u.role==='manager');
+  return users.map(u=>{
+    const s=computeStatsFor(u.id);
+    const raw = s.newClients*2 + s.visits*1 + s.ordersPlaced*1;
+    const bar = Math.min(100, Math.round(raw*2));  // 50 raw = 100%
+    return { user:u, stats:s, score:raw, bar };
+  }).sort((a,b)=>b.score-a.score);
+}
+
+/* Online presence — derived from latest activity log entry per user. */
+function presence(){
+  const act=DB.getActivity();
+  const map={};
+  DB.getUsers().forEach(u=>{
+    if(State.user && u.id===State.user.id){ map[u.id]={online:true,ts:Date.now()}; return; }
+    const last=act.find(a=>a.userId===u.id);
+    map[u.id]={ online: last? (Date.now()-last.ts<5*60000):false, ts:last?last.ts:0 };
+  });
+  return map;
+}
+
+/* =====================================================================
+   SECTION 7 — DASHBOARD VIEW
+   Two big panels (NEW CLIENTS green / CLIENT VISITS blue) each with
+   Today / Week / Month + per-manager bars. Plus follow-ups & activity.
+   ===================================================================== */
+function renderDashboard(){
+  const isAdmin = State.user.role==='admin';
+  const aggregate = computeStatsFor(isAdmin?null:State.user.id);
+  const mgrs = DB.getUsers().filter(u=>u.role==='manager');
+  const pres = presence();
+  const allCards = managerCards();
+
+  // Cache stats once per render — was being recomputed inside mgrBars on every call
+  const statsByMgr = {};
+  mgrs.forEach(u=>{ statsByMgr[u.id] = computeStatsFor(u.id); });
+
+  // Per-manager mini bars for boss panels
+  const mgrBars = (statKey, accent) => {
+    if(!isAdmin) return '';
+    const max = Math.max(1, ...mgrs.map(u=>statsByMgr[u.id][statKey]));
+    return mgrs.map(u=>{
+      const n = statsByMgr[u.id][statKey];
+      const pct = Math.round((n/max)*100);
+      return `<div class="mb-2">
+        <div class="flex items-center justify-between text-xs mb-1">
+          <div class="flex items-center gap-2 min-w-0">
+            <span class="w-5 h-5 rounded-full grid place-items-center text-[9px] font-bold shrink-0" style="background:${u.color}22;color:${u.color}">${initials(u.name)}</span>
+            <span class="font-medium truncate">${esc(u.name)}</span>
+          </div>
+          <span class="text-soft font-semibold">${n}</span>
+        </div>
+        <div class="h-1.5 rounded-full overflow-hidden" style="background:rgba(150,150,150,.15)">
+          <div class="h-full rounded-full" style="width:${pct}%;background:${accent};transition:width 1s"></div>
+        </div>
+      </div>`;
+    }).join('');
+  };
+
+  const newClientsPanel = `
+    <div class="glass rounded-2xl p-5 relative overflow-hidden animate-fadeUp"
+      style="border-left:4px solid var(--accent-new)">
+      <div class="absolute -right-4 -top-4 text-6xl opacity-10">🆕</div>
+      <div class="flex items-center justify-between mb-4">
+        <div>
+          <div class="text-soft text-[11px] uppercase font-bold tracking-wider">New Clients</div>
+          <div class="font-display text-3xl font-bold" style="color:var(--accent-new)">${aggregate.newClientsMonth}</div>
+          <div class="text-soft text-xs">this month</div>
+        </div>
+        <div class="text-right text-xs">
+          <div><span class="text-soft">Today</span> <b class="ml-2">${aggregate.newClientsToday}</b></div>
+          <div class="mt-1"><span class="text-soft">Week</span> <b class="ml-2">${aggregate.newClientsWeek}</b></div>
+          <div class="mt-1"><span class="text-soft">Total</span> <b class="ml-2">${aggregate.newClients}</b></div>
+        </div>
+      </div>
+      ${isAdmin ? `<div class="border-t border-glass pt-3"><div class="text-soft text-[10px] uppercase font-bold tracking-wider mb-2">By Manager · this month</div>
+        ${mgrBars('newClientsMonth','linear-gradient(90deg,#34d399,#10b981)')}</div>` : ''}
+    </div>`;
+
+  const visitsPanel = `
+    <div class="glass rounded-2xl p-5 relative overflow-hidden animate-fadeUp"
+      style="border-left:4px solid var(--accent-visit)">
+      <div class="absolute -right-4 -top-4 text-6xl opacity-10">📍</div>
+      <div class="flex items-center justify-between mb-4">
+        <div>
+          <div class="text-soft text-[11px] uppercase font-bold tracking-wider">Client Visits</div>
+          <div class="font-display text-3xl font-bold" style="color:var(--accent-visit)">${aggregate.visitsMonth}</div>
+          <div class="text-soft text-xs">this month</div>
+        </div>
+        <div class="text-right text-xs">
+          <div><span class="text-soft">Today</span> <b class="ml-2">${aggregate.visitsToday}</b></div>
+          <div class="mt-1"><span class="text-soft">Week</span> <b class="ml-2">${aggregate.visitsWeek}</b></div>
+          <div class="mt-1"><span class="text-soft">Total</span> <b class="ml-2">${aggregate.visits}</b></div>
+        </div>
+      </div>
+      ${isAdmin ? `<div class="border-t border-glass pt-3"><div class="text-soft text-[10px] uppercase font-bold tracking-wider mb-2">By Manager · this month</div>
+        ${mgrBars('visitsMonth','linear-gradient(90deg,#60a5fa,#3b82f6)')}</div>` : ''}
+    </div>`;
+
+  // Today summary strip (4 numbers)
+  const todayStrip = `
+    <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 stagger">
+      <div class="glass card-hover rounded-2xl p-4">
+        <div class="text-soft text-[11px] uppercase font-bold tracking-wider">New Clients Today</div>
+        <div class="font-display text-3xl font-bold mt-1" style="color:var(--accent-new)">${aggregate.newClientsToday}</div>
+      </div>
+      <div class="glass card-hover rounded-2xl p-4">
+        <div class="text-soft text-[11px] uppercase font-bold tracking-wider">Client Visits Today</div>
+        <div class="font-display text-3xl font-bold mt-1" style="color:var(--accent-visit)">${aggregate.visitsToday}</div>
+      </div>
+      <div class="glass card-hover rounded-2xl p-4">
+        <div class="text-soft text-[11px] uppercase font-bold tracking-wider">Pending Follow-ups</div>
+        <div class="font-display text-3xl font-bold mt-1">${aggregate.followUpsPending}</div>
+      </div>
+      <div class="glass card-hover rounded-2xl p-4">
+        <div class="text-soft text-[11px] uppercase font-bold tracking-wider">Orders Placed</div>
+        <div class="font-display text-3xl font-bold mt-1">${aggregate.ordersPlaced}</div>
+      </div>
+    </div>`;
+
+  // Manager ranking cards (admin only)
+  const mgrCards = isAdmin ? allCards.map((m,i)=>`
+    <div class="glass card-hover rounded-2xl p-5">
+      <div class="flex items-center gap-3">
+        <div class="w-12 h-12 rounded-full grid place-items-center font-bold shrink-0"
+             style="background:${m.user.color}22;color:${m.user.color}">${initials(m.user.name)}</div>
+        <div class="flex-1 min-w-0">
+          <div class="font-semibold truncate flex items-center gap-2">${esc(m.user.name)}
+            ${i===0?'<span class="badge" style="background:#e0a45822;color:#e0a458">🏆 Top</span>':''}</div>
+          <div class="text-soft text-xs flex items-center gap-1.5">
+            <span class="${pres[m.user.id]&&pres[m.user.id].online?'live-dot':'offline-dot'}"></span>
+            ${pres[m.user.id]&&pres[m.user.id].online?'Online now':'Offline'}
+          </div>
+        </div>
+        <div class="text-right">
+          <div class="font-display text-2xl font-bold" style="color:${m.user.color}">${m.score}</div>
+          <div class="text-soft text-[10px] uppercase">Points</div>
+        </div>
+      </div>
+      <div class="grid grid-cols-3 gap-2 mt-4 text-center">
+        <div class="glass-soft rounded-xl py-2">
+          <div class="font-bold" style="color:var(--accent-new)">${m.stats.newClientsMonth}</div>
+          <div class="text-soft text-[10px]">New (mo)</div>
+        </div>
+        <div class="glass-soft rounded-xl py-2">
+          <div class="font-bold" style="color:var(--accent-visit)">${m.stats.visitsMonth}</div>
+          <div class="text-soft text-[10px]">Visits (mo)</div>
+        </div>
+        <div class="glass-soft rounded-xl py-2">
+          <div class="font-bold">${m.stats.ordersPlaced}</div>
+          <div class="text-soft text-[10px]">Orders</div>
+        </div>
+      </div>
+      <div class="mt-3 h-2 rounded-full overflow-hidden" style="background:rgba(150,150,150,.15)">
+        <div class="h-full rounded-full" style="width:${m.bar}%;background:linear-gradient(90deg,${m.user.color},#e0a458);transition:width 1s"></div>
+      </div>
+    </div>`).join('') : '';
+
+  $('#view-dashboard').innerHTML = `
+    ${todayStrip}
+
+    <div class="grid lg:grid-cols-2 gap-3 mt-3">
+      ${newClientsPanel}
+      ${visitsPanel}
+    </div>
+
+    <div class="grid lg:grid-cols-3 gap-3 mt-3">
+      <div class="glass rounded-2xl p-5 lg:col-span-2 animate-fadeUp">
+        <div class="flex items-center justify-between mb-3">
+          <div><div class="font-semibold">Last 7 Days — Activities</div>
+          <div class="text-soft text-xs">New clients (green) vs visits (blue)</div></div>
+          <span class="badge" style="background:#e0a45822;color:#e0a458">Live</span>
+        </div>
+        <div style="height:230px"><canvas id="dashTrend"></canvas></div>
+      </div>
+      <div class="glass rounded-2xl p-5 animate-fadeUp">
+        <div class="font-semibold mb-3">⏰ Upcoming Follow-ups</div>
+        <div id="dashFollow" class="space-y-2 max-h-72 overflow-y-auto pr-1"></div>
+      </div>
+    </div>
+
+    ${isAdmin ? `
+      <div class="mt-3" id="dashAlerts"></div>
+      <div class="mt-3">
+        <div class="flex items-center justify-between mb-2">
+          <h3 class="font-display text-lg font-bold">Manager Performance</h3>
+          <span class="text-soft text-xs">🏆 Top: <b>${esc(allCards.length?allCards[0].user.name:'—')}</b></span>
+        </div>
+        <div class="grid sm:grid-cols-2 gap-3 stagger">${mgrCards}</div>
+      </div>` : ''}
+
+    <div class="glass rounded-2xl p-5 mt-3">
+      <div class="font-semibold mb-3 flex items-center gap-2"><span class="live-dot"></span> Real-time Activity</div>
+      <div id="dashFeed" class="space-y-2 max-h-72 overflow-y-auto pr-1"></div>
+    </div>
+  `;
+
+  renderFeedInto('#dashFeed', 10);
+  renderFollowups();
+  drawTrendChart();
+  if(isAdmin) renderDashAlerts();
+}
+
+function renderDashAlerts(){
+  const el=$('#dashAlerts'); if(!el) return;
+  const visits=DB.getVisits();
+  const clients=DB.getClients();
+  const users=DB.getUsers().filter(u=>u.role==='manager');
+  const today=todayStr();
+  const alerts=[];
+
+  // No activity today
+  users.forEach(u=>{
+    const newToday=clients.filter(c=>c.manager===u.id && tsToDate(c.createdAt)===today).length;
+    const visitsToday=visits.filter(v=>v.manager===u.id && v.date===today).length;
+    if(newToday===0 && visitsToday===0){
+      alerts.push({ type:'warn', icon:'📭',
+        title:'No activity today',
+        body:`<b>${esc(u.name)}</b> has logged no new clients or visits today.` });
+    }
+  });
+
+  // Inactive in last 3 days
+  users.forEach(u=>{
+    const d3=new Date(); d3.setDate(d3.getDate()-3); const d3s=d3.toISOString().slice(0,10);
+    const recentNew=clients.filter(c=>c.manager===u.id && tsToDate(c.createdAt)>=d3s).length;
+    const recentVis=visits.filter(v=>v.manager===u.id && v.date>=d3s).length;
+    if(recentNew===0 && recentVis===0){
+      alerts.push({ type:'error', icon:'😴',
+        title:'Inactive manager',
+        body:`<b>${esc(u.name)}</b> has had no activity in the last 3 days.` });
+    }
+  });
+
+  // Overdue follow-ups
+  const overdue=visits.filter(v=>v.followDate && v.followDate<today).slice(0,5);
+  overdue.forEach(v=>{
+    const mgr=users.find(u=>u.id===v.manager);
+    alerts.push({ type:'error', icon:'⚠️',
+      title:'Overdue follow-up',
+      body:`<b>${esc(clientLabel(v))}</b> follow-up was due <b>${Fmt.dateShort(v.followDate)}</b>${mgr?' · '+esc(mgr.name):''}` });
+  });
+
+  if(!alerts.length){
+    el.innerHTML=`<div class="glass rounded-2xl px-5 py-4 flex items-center gap-3">
+      <span class="text-2xl">✅</span>
+      <span class="font-semibold text-sm" style="color:#34d399">All clear — no alerts today!</span>
+    </div>`;
+    return;
+  }
+
+  const colors={ warn:{bg:'rgba(245,158,11,.12)',border:'rgba(245,158,11,.35)',c:'#f59e0b'},
+                 error:{bg:'rgba(244,63,94,.12)',border:'rgba(244,63,94,.35)',c:'#f43f5e'} };
+  el.innerHTML=`
+    <div class="flex items-center justify-between mb-2">
+      <h3 class="font-display text-lg font-bold flex items-center gap-2">🚨 Alerts
+        <span class="badge" style="background:#f43f5e22;color:#f43f5e">${alerts.length}</span>
+      </h3>
+    </div>
+    <div class="grid sm:grid-cols-2 xl:grid-cols-3 gap-2 stagger">
+      ${alerts.map(a=>{
+        const s=colors[a.type]||colors.warn;
+        return `<div class="rounded-2xl px-4 py-3 flex items-start gap-3"
+          style="background:${s.bg};border:1px solid ${s.border}">
+          <span class="text-xl mt-0.5">${a.icon}</span>
+          <div class="min-w-0">
+            <div class="font-semibold text-sm" style="color:${s.c}">${a.title}</div>
+            <div class="text-soft text-xs mt-0.5">${a.body}</div>
+          </div>
+        </div>`;
+      }).join('')}
+    </div>`;
+}
+
+function renderFollowups(){
+  const list=scopedVisits().filter(v=>v.followDate)
+    .sort((a,b)=>a.followDate.localeCompare(b.followDate)).slice(0,8);
+  const el=$('#dashFollow'); if(!el) return;
+  el.innerHTML = list.length? list.map(v=>{
+    const overdue = v.followDate < todayStr();
+    const _s=visitShop(v);
+    return `<div class="glass-soft rounded-xl p-3 flex items-center gap-3 cursor-pointer hover:scale-[1.01] transition" onclick="openVisitDetail('${v.id}')">
+      <div class="text-xl">${overdue?'🔴':'🟡'}</div>
+      <div class="flex-1 min-w-0">
+        <div class="font-medium text-sm truncate">${esc(_s.shop)}</div>
+        <div class="text-soft text-xs">${esc(_s.area||'—')}${_s.city?' · '+esc(_s.city):''}</div>
+      </div>
+      <div class="text-right">
+        <div class="text-xs font-semibold ${overdue?'text-rose-400':''}">${Fmt.dateShort(v.followDate)}</div>
+        <div class="text-soft text-[10px]">${overdue?'Overdue':'Scheduled'}</div>
+      </div>
+    </div>`;
+  }).join('') : `<div class="text-soft text-sm text-center py-8">No pending follow-ups 🎉</div>`;
+}
+
+function renderFeedInto(sel, limit){
+  const el=$(sel); if(!el) return;
+  let act=DB.getActivity();
+  if(State.user.role!=='admin') act=act.filter(a=>a.userId===State.user.id);
+  act=act.slice(0,limit||20);
+  el.innerHTML = act.length? act.map(a=>{
+    const isNew = (a.action||'').includes('new client');
+    const isVisit = (a.action||'').includes('visit');
+    const dot = isNew? 'var(--accent-new)' : isVisit? 'var(--accent-visit)' : '#e0a458';
+    return `<div class="flex items-start gap-3 text-sm">
+      <div class="w-2 h-2 rounded-full mt-1.5 shrink-0" style="background:${dot}"></div>
+      <div class="flex-1 min-w-0"><span class="font-medium">${esc(a.user)}</span>
+        <span class="text-soft">${esc(a.action)}</span> ${a.meta?`<span class="font-medium">${esc(a.meta)}</span>`:''}
+        <div class="text-soft text-[11px]">${Fmt.rel(a.ts)}</div></div>
+    </div>`;
+  }).join('') : `<div class="text-soft text-sm text-center py-8">No activity yet</div>`;
+}
+
+/* =====================================================================
+   SECTION 8 — NEW CLIENTS VIEW (list, search, add/edit, delete)
+   ===================================================================== */
+function renderClientsView(){
+  const isAdmin=State.user.role==='admin';
+  const mgrOpts=DB.getUsers().filter(u=>u.role==='manager')
+    .map(u=>`<option value="${u.id}">${esc(u.name)}</option>`).join('');
+  const areas=Array.from(new Set(DB.getClients().map(c=>c.area).filter(Boolean))).sort();
+  const areaOpts=areas.map(a=>`<option value="${esc(a)}">${esc(a)}</option>`).join('');
+
+  $('#view-clients').innerHTML=`
+    <div class="glass rounded-2xl p-4 flex flex-wrap items-center gap-3">
+      <div class="flex items-center gap-2 glass-soft rounded-xl px-3 py-2 flex-1 min-w-[180px]">
+        <span class="text-soft">🔍</span>
+        <input id="cSearch" placeholder="Search shop, owner, contact, city…" class="border-0 p-0 text-sm" style="box-shadow:none;border:0" value="${esc(State.clientFilters.q)}" />
+      </div>
+      ${isAdmin?`<select id="fcManager" class="!w-auto"><option value="all">All Managers</option>${mgrOpts}</select>`:''}
+      <select id="fcArea" class="!w-auto"><option value="all">All Emirates</option>${areaOpts}</select>
+      ${!isAdmin?`<button id="addClientBtn" class="btn btn-new px-4 py-2.5">＋ Add New Client</button>`:''}
+    </div>
+
+    <div id="clientsGrid" class="grid md:grid-cols-2 xl:grid-cols-3 gap-3 mt-3 stagger"></div>
+    <div id="clientsPager" class="flex items-center justify-center gap-2 mt-5"></div>
+  `;
+
+  if(isAdmin) $('#fcManager').value=State.clientFilters.manager;
+  $('#fcArea').value=State.clientFilters.area;
+
+  $('#cSearch').addEventListener('input', e=>{ State.clientFilters.q=e.target.value; State.page=1; paintClients(); });
+  if(isAdmin) $('#fcManager').addEventListener('change', e=>{ State.clientFilters.manager=e.target.value; State.page=1; paintClients(); });
+  $('#fcArea').addEventListener('change', e=>{ State.clientFilters.area=e.target.value; State.page=1; paintClients(); });
+  if(!isAdmin) $('#addClientBtn').addEventListener('click', ()=>openClientModal());
+
+  paintClients();
+}
+
+function getFilteredClients(){
+  let c=scopedClients();
+  const f=State.clientFilters;
+  if(State.user.role==='admin' && f.manager!=='all') c=c.filter(x=>x.manager===f.manager);
+  if(f.area!=='all') c=c.filter(x=>x.area===f.area);
+  const q=(f.q||'').trim().toLowerCase();
+  if(q) c=c.filter(x=>[x.shop,x.owner,x.contact,x.whatsapp,x.address,x.area,x.city]
+    .some(v=>String(v||'').toLowerCase().includes(q)));
+  return c.sort((a,b)=>(b.createdAt||0)-(a.createdAt||0));
+}
+
+function paintClients(){
+  const all=getFilteredClients();
+  const totalPages=Math.max(1, Math.ceil(all.length/State.pageSize));
+  if(State.page>totalPages) State.page=totalPages;
+  const start=(State.page-1)*State.pageSize;
+  const page=all.slice(start, start+State.pageSize);
+  const users=DB.getUsers();
+  const visits=DB.getVisits();
+  const isAdmin=State.user.role==='admin';
+
+  const grid=$('#clientsGrid');
+  if(!page.length){
+    grid.innerHTML=`<div class="glass rounded-2xl p-10 text-center text-soft col-span-full">
+      <div class="text-4xl mb-2">🏪</div>No clients yet.
+      ${!isAdmin?`<div class="mt-3"><button class="btn btn-new px-4 py-2" onclick="openClientModal()">＋ Add the first one</button></div>`:''}
+    </div>`;
+  } else {
+    grid.innerHTML=page.map(c=>{
+      const mgr=users.find(u=>u.id===c.manager)||{name:'?',color:'#888'};
+      const visitCount=visits.filter(v=>v.clientId===c.id).length;
+      const lastVisit=visits.filter(v=>v.clientId===c.id).sort((a,b)=>b.date.localeCompare(a.date))[0];
+      const createdToday = isSameDayTs(c.createdAt);
+      return `<div class="glass card-hover rounded-2xl p-4 cursor-pointer" onclick="openClientDetail('${c.id}')">
+        <div class="flex items-start justify-between gap-2">
+          <div class="min-w-0">
+            <div class="font-display text-lg font-bold truncate">${esc(c.shop)}</div>
+            <div class="text-soft text-xs truncate">👤 ${esc(c.owner)}</div>
+          </div>
+          <span class="badge badge-new shrink-0">🆕 NEW CLIENT</span>
+        </div>
+        <div class="mt-3 flex items-center gap-2 text-xs text-soft flex-wrap">
+          <span>📍 ${esc(c.area||'—')}${c.city?' · '+esc(c.city):''}</span>
+          <span>·</span>
+          <span>📞 ${esc(c.contact||'—')}</span>
+          ${c.checkIn||c.checkOut?`<span>·</span><span title="Meeting time">⏱ ${esc(c.checkIn||'?')}–${esc(c.checkOut||'?')}${Fmt.durationLabel(c)?' ('+Fmt.durationLabel(c)+')':''}</span>`:''}
+        </div>
+        <div class="mt-3 text-sm text-soft" style="display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden">${esc(c.firstMeetingNotes||c.notes||'No notes')}</div>
+        <div class="flex items-center justify-between mt-4 pt-3 border-t border-glass gap-2">
+          <div class="flex items-center gap-2 min-w-0 flex-1" title="Added by ${esc(mgr.name)}">
+            <span class="w-6 h-6 rounded-full grid place-items-center text-[10px] font-bold shrink-0" style="background:${mgr.color}22;color:${mgr.color}">${initials(mgr.name)}</span>
+            <span class="text-soft text-[11px] truncate">${esc(mgr.name)}</span>
+          </div>
+          <div class="flex items-center gap-1 text-[11px] text-soft shrink-0">
+            ${createdToday?'<span class="badge" style="background:#34d39922;color:#34d399">today</span>':`<span>${Fmt.dateShort(tsToDate(c.createdAt))}</span>`}
+            ${visitCount?`<span title="visits">·  ${visitCount}🔁</span>`:''}
+          </div>
+        </div>
+        ${!isAdmin?`<div class="flex gap-1 mt-3" onclick="event.stopPropagation()">
+          <button class="btn btn-visit flex-1 justify-center py-1.5 text-xs" onclick="openVisitModal(null, '${c.id}')">＋ Log Visit</button>
+          <button class="btn btn-ghost px-2 py-1.5 text-xs" title="Edit" onclick="openClientModal('${c.id}')">✎</button>
+          <button class="btn btn-ghost px-2 py-1.5 text-xs" title="Delete" onclick="askDeleteClient('${c.id}')">🗑️</button>
+        </div>`:''}
+      </div>`;
+    }).join('');
+  }
+
+  const pager=$('#clientsPager');
+  if(totalPages<=1){ pager.innerHTML=`<span class="text-soft text-xs">${all.length} client(s)</span>`; return; }
+  let html=`<button class="btn btn-ghost px-3 py-1.5 ${State.page===1?'opacity-40':''}" onclick="gotoClientPage(${State.page-1})">‹</button>`;
+  for(let i=1;i<=totalPages;i++){
+    html+=`<button class="btn ${i===State.page?'btn-primary':'btn-ghost'} px-3 py-1.5" onclick="gotoClientPage(${i})">${i}</button>`;
+  }
+  html+=`<button class="btn btn-ghost px-3 py-1.5 ${State.page===totalPages?'opacity-40':''}" onclick="gotoClientPage(${State.page+1})">›</button>`;
+  pager.innerHTML=html;
+}
+window.gotoClientPage=function(p){ const tp=Math.max(1,Math.ceil(getFilteredClients().length/State.pageSize));
+  State.page=Math.min(Math.max(1,p),tp); paintClients(); };
+
+/* ---- Client detail modal ---- */
+window.openClientDetail=function(id){
+  const c=findClient(id); if(!c) return;
+  const mgr=DB.getUsers().find(u=>u.id===c.manager)||{name:'?',color:'#888'};
+  const visits=DB.getVisits().filter(v=>v.clientId===id).sort((a,b)=>b.date.localeCompare(a.date));
+  const isAdmin=State.user.role==='admin';
+  const row=(l,val)=>`<div><div class="text-soft text-[11px] uppercase tracking-wide">${l}</div><div class="font-medium text-sm mt-0.5">${val||'—'}</div></div>`;
+  $('#detailModalTitle').textContent='Client Profile';
+  $('#detailBody').innerHTML=`
+    <div class="flex items-start justify-between gap-3 mb-4">
+      <div><div class="font-display text-2xl font-bold">${esc(c.shop)}</div>
+        <div class="text-soft text-sm">👤 ${esc(c.owner)}</div></div>
+      <span class="badge badge-new">🆕 NEW CLIENT</span>
+    </div>
+    <div class="grid grid-cols-2 sm:grid-cols-3 gap-4 glass-soft rounded-2xl p-4">
+      ${row('Contact',esc(c.contact))}
+      ${row('WhatsApp',esc(c.whatsapp))}
+      ${row('Emirate',esc(c.area))}
+      ${row('City / Area',esc(c.city))}
+      ${row('Address',esc(c.address))}
+      ${row('Created By',`<span style="color:${mgr.color}">${esc(mgr.name)}</span>`)}
+      ${row('First Meeting',c.meetDate?Fmt.date(c.meetDate):Fmt.date(tsToDate(c.createdAt)))}
+      ${row('Check-In',esc(c.checkIn))}
+      ${row('Check-Out',esc(c.checkOut))}
+      ${row('Duration',Fmt.durationLabel(c)||'—')}
+    </div>
+    <div class="mt-4 grid sm:grid-cols-2 gap-4">
+      <div class="glass-soft rounded-2xl p-4">${row('General Notes',esc(c.notes))}</div>
+      <div class="glass-soft rounded-2xl p-4">${row('First Meeting Notes',esc(c.firstMeetingNotes))}</div>
+    </div>
+    <div class="mt-4">
+      <div class="flex items-center justify-between mb-2">
+        <div class="font-semibold text-sm">Visit History (${visits.length})</div>
+        ${!isAdmin?`<button class="btn btn-visit px-3 py-1.5 text-xs" onclick="closeDetail();openVisitModal(null,'${c.id}')">＋ Log Visit</button>`:''}
+      </div>
+      <div class="space-y-2 max-h-60 overflow-y-auto">
+        ${visits.length?visits.map(v=>`
+          <div class="glass-soft rounded-xl p-3 flex items-center gap-3 cursor-pointer" onclick="closeDetail();openVisitDetail('${v.id}')">
+            <div class="text-soft text-xs shrink-0 w-16">${Fmt.dateShort(v.date)}</div>
+            <div class="flex-1 min-w-0 text-sm truncate">${esc(v.notes||'—')}</div>
+            <span class="badge" style="background:${(v.orderStatus==='Order Placed'?'#34d39922':v.orderStatus==='Pending'?'#f59e0b22':'#94a3b822')};color:${(v.orderStatus==='Order Placed'?'#34d399':v.orderStatus==='Pending'?'#f59e0b':'#94a3b8')}">${esc(v.orderStatus)}</span>
+          </div>`).join(''):`<div class="text-soft text-xs text-center py-4">No visits yet</div>`}
+      </div>
+    </div>
+    ${!isAdmin?`<div class="flex gap-2 mt-5">
+      <button class="btn btn-ghost flex-1 justify-center py-2.5" onclick="closeDetail();openClientModal('${c.id}')">✎ Edit Client</button>
+      <button class="btn flex-1 justify-center py-2.5" style="background:#f43f5e22;color:#f43f5e" onclick="closeDetail();askDeleteClient('${c.id}')">🗑️ Delete</button>
+    </div>`:''}`;
+  show('#detailModal');
+};
+window.closeDetail=function(){ hide('#detailModal'); };
+
+/* ---- New Client modal ---- */
+function openClientModal(id){
+  const isAdmin=State.user.role==='admin';
+  const f=$('#clientForm'); f.reset();
+  $('#cId').value=id||'';
+  // populate manager dropdown for admin
+  if(isAdmin){
+    const mgrs=DB.getUsers().filter(u=>u.role==='manager');
+    $('#cManager').innerHTML=mgrs.map(m=>`<option value="${m.id}">${esc(m.name)}</option>`).join('');
+    $('#cManagerWrap').classList.remove('hide');
+  } else {
+    $('#cManagerWrap').classList.add('hide');
+  }
+  if(id){
+    const c=findClient(id); if(!c){ Toast.show('Client not found','error'); return; }
+    $('#clientModalTitle').innerHTML=`<span class="badge badge-new">🆕 NEW CLIENT</span> Edit Client`;
+    $('#cShop').value=c.shop; $('#cOwner').value=c.owner; $('#cContact').value=c.contact;
+    $('#cWhatsapp').value=c.whatsapp||''; $('#cAddress').value=c.address||'';
+    $('#cArea').value=c.area||''; $('#cCity').value=c.city||''; $('#cNotes').value=c.notes||'';
+    $('#cFirstNotes').value=c.firstMeetingNotes||'';
+    $('#cMeetDate').value=c.meetDate||'';
+    $('#cIn').value=c.checkIn||'';
+    $('#cOut').value=c.checkOut||'';
+    if(isAdmin) $('#cManager').value=c.manager;
+  } else {
+    $('#clientModalTitle').innerHTML=`<span class="badge badge-new">🆕 NEW CLIENT</span> Add New Client`;
+    // Default to today so user only needs to add times
+    $('#cMeetDate').value=todayStr();
+  }
+  show('#clientModal');
+}
+function closeClientModal(){ hide('#clientModal'); }
+
+async function saveClient(e){
+  e.preventDefault();
+  const id=$('#cId').value;
+  const existing=id?findClient(id):null;
+  const isAdmin=State.user.role==='admin';
+  const c={
+    id: id || uid('c'),
+    shop: $('#cShop').value.trim(),
+    owner: $('#cOwner').value.trim(),
+    contact: $('#cContact').value.trim(),
+    whatsapp: $('#cWhatsapp').value.trim(),
+    address: $('#cAddress').value.trim(),
+    area: $('#cArea').value,
+    city: $('#cCity').value.trim(),
+    notes: $('#cNotes').value.trim(),
+    firstMeetingNotes: $('#cFirstNotes').value.trim(),
+    meetDate: $('#cMeetDate').value || '',
+    checkIn: $('#cIn').value || '',
+    checkOut: $('#cOut').value || '',
+    manager: existing? existing.manager : (isAdmin ? $('#cManager').value : State.user.id),
+    createdAt: existing? existing.createdAt : Date.now(),
+  };
+  if(!c.shop||!c.owner||!c.contact||!c.address||!c.area||!c.firstMeetingNotes){
+    Toast.show('Please fill all required fields','error'); return;
+  }
+  // Validate check-out is after check-in
+  if(c.checkIn && c.checkOut && c.checkOut <= c.checkIn){
+    Toast.show('Check-Out must be after Check-In','error'); return;
+  }
+  // Prevent duplicate shop names (case-insensitive)
+  const dup=DB.getClients().find(x=>x.id!==c.id && (x.shop||'').trim().toLowerCase()===c.shop.toLowerCase());
+  if(dup){ Toast.show(`A client named "${c.shop}" already exists`,'error'); return; }
+
+  await DB.saveClient(c);
+  await DB.log(id?'updated new client':'added a new client', c.shop);
+  DB.pushNotif(id?'Client updated':'New client added', c.shop, 'success');
+  Toast.show(id?'Client updated':'New client added 🎉','success');
+  closeClientModal();
+}
+
+window.openClientModal=openClientModal;
+let pendingDeleteClient=null;
+window.askDeleteClient=function(id){
+  pendingDeleteClient=id; pendingDeleteVisit=null;
+  const c=findClient(id);
+  $('#confirmTitle').textContent='Delete this client?';
+  $('#confirmText').textContent=`This will permanently remove "${c?c.shop:''}" and all its visit history.`;
+  show('#confirmModal');
+};
+
+/* =====================================================================
+   SECTION 9 — CLIENT VISITS VIEW
+   ===================================================================== */
+function renderVisitsView(){
+  const isAdmin=State.user.role==='admin';
+  const mgrOpts=DB.getUsers().filter(u=>u.role==='manager')
+    .map(u=>`<option value="${u.id}">${esc(u.name)}</option>`).join('');
+
+  $('#view-visits').innerHTML=`
+    <div class="glass rounded-2xl p-4 flex flex-wrap items-center gap-3">
+      <div class="flex items-center gap-2 glass-soft rounded-xl px-3 py-2 flex-1 min-w-[180px]">
+        <span class="text-soft">🔍</span>
+        <input id="vSearch" placeholder="Search shop, notes, outcome…" class="border-0 p-0 text-sm" style="box-shadow:none;border:0" value="${esc(State.visitFilters.q)}" />
+      </div>
+      ${isAdmin?`<select id="fvManager" class="!w-auto"><option value="all">All Managers</option>${mgrOpts}</select>`:''}
+      <select id="fvOutcome" class="!w-auto">
+        <option value="all">All Outcomes</option>
+        <option>Successful</option><option>Follow-up Needed</option>
+        <option>No Interest</option><option>Owner Not Available</option><option>Long Discussion</option>
+      </select>
+      <button id="addVisitBtn" class="${isAdmin?'hide ':''}btn btn-visit px-4 py-2.5">＋ Log Client Visit</button>
+    </div>
+
+    <div id="visitsGrid" class="grid md:grid-cols-2 xl:grid-cols-3 gap-3 mt-3 stagger"></div>
+    <div id="visitsPager" class="flex items-center justify-center gap-2 mt-5"></div>
+  `;
+
+  if(isAdmin) $('#fvManager').value=State.visitFilters.manager;
+  $('#fvOutcome').value=State.visitFilters.outcome;
+
+  $('#vSearch').addEventListener('input', e=>{ State.visitFilters.q=e.target.value; State.page=1; paintVisits(); });
+  if(isAdmin) $('#fvManager').addEventListener('change', e=>{ State.visitFilters.manager=e.target.value; State.page=1; paintVisits(); });
+  $('#fvOutcome').addEventListener('change', e=>{ State.visitFilters.outcome=e.target.value; State.page=1; paintVisits(); });
+  if(!isAdmin) $('#addVisitBtn').addEventListener('click', ()=>openVisitModal());
+
+  paintVisits();
+}
+
+function getFilteredVisits(){
+  let v=scopedVisits();
+  const f=State.visitFilters;
+  if(State.user.role==='admin' && f.manager!=='all') v=v.filter(x=>x.manager===f.manager);
+  if(f.outcome!=='all') v=v.filter(x=>x.outcome===f.outcome);
+  const q=(f.q||'').trim().toLowerCase();
+  if(q) v=v.filter(x=>{
+    const c=findClient(x.clientId)||{};
+    return [c.shop,c.owner,c.area,x.notes,x.outcome,x.orderStatus]
+      .some(s=>String(s||'').toLowerCase().includes(q));
+  });
+  return v.sort((a,b)=>(b.date+b.checkin).localeCompare(a.date+a.checkin));
+}
+
+const OUTCOME_STYLE={
+  'Successful':         {bg:'#34d39922',c:'#34d399'},
+  'Follow-up Needed':   {bg:'#f59e0b22',c:'#f59e0b'},
+  'No Interest':        {bg:'#94a3b822',c:'#94a3b8'},
+  'Owner Not Available':{bg:'#a78bfa22',c:'#a78bfa'},
+  'Long Discussion':    {bg:'#60a5fa22',c:'#60a5fa'},
+};
+const ORDER_STYLE={
+  'Order Placed':{bg:'#34d39922',c:'#34d399'},
+  'Pending':     {bg:'#f59e0b22',c:'#f59e0b'},
+  'No Order':    {bg:'#94a3b822',c:'#94a3b8'},
+};
+
+function paintVisits(){
+  const all=getFilteredVisits();
+  const totalPages=Math.max(1, Math.ceil(all.length/State.pageSize));
+  if(State.page>totalPages) State.page=totalPages;
+  const start=(State.page-1)*State.pageSize;
+  const page=all.slice(start, start+State.pageSize);
+  const users=DB.getUsers();
+  const isAdmin=State.user.role==='admin';
+
+  const grid=$('#visitsGrid');
+  if(!page.length){
+    grid.innerHTML=`<div class="glass rounded-2xl p-10 text-center text-soft col-span-full">
+      <div class="text-4xl mb-2">📍</div>No visits match your filters.
+      ${!isAdmin?`<div class="mt-3"><button class="btn btn-visit px-4 py-2" onclick="openVisitModal()">＋ Log a visit</button></div>`:''}
+    </div>`;
+  } else {
+    grid.innerHTML=page.map(v=>{
+      const c=visitShop(v);
+      const mgr=users.find(u=>u.id===v.manager)||{name:'?',color:'#888'};
+      const os=ORDER_STYLE[v.orderStatus]||ORDER_STYLE['No Order'];
+      const oc=OUTCOME_STYLE[v.outcome]||OUTCOME_STYLE['Successful'];
+      const dur=Fmt.duration(v);
+      return `<div class="glass card-hover rounded-2xl p-4 cursor-pointer" onclick="openVisitDetail('${v.id}')">
+        <div class="flex items-start justify-between gap-2">
+          <div class="min-w-0">
+            <div class="font-display text-lg font-bold truncate">${esc(c.shop)}</div>
+            <div class="text-soft text-xs truncate">📍 ${esc(c.area||'—')}${c.city?' · '+esc(c.city):''}</div>
+          </div>
+          <div class="flex flex-col items-end gap-1 shrink-0">
+            <span class="badge badge-visit">🔁 VISIT</span>
+            ${c._unregistered?'<span class="badge" style="background:#f59e0b22;color:#f59e0b">Unregistered</span>':''}
+          </div>
+        </div>
+        <div class="mt-3 flex items-center gap-2 text-xs text-soft flex-wrap">
+          <span>${Fmt.dateShort(v.date)}</span>
+          ${v.checkin?`<span>·</span><span>⏱ ${esc(v.checkin)}${v.checkout?'–'+esc(v.checkout):''}${dur?' ('+Fmt.durationLabel(v)+')':''}</span>`:''}
+        </div>
+        <div class="mt-2 flex gap-1.5 flex-wrap">
+          <span class="badge" style="background:${oc.bg};color:${oc.c}">${esc(v.outcome||'—')}</span>
+          <span class="badge" style="background:${os.bg};color:${os.c}">${esc(v.orderStatus||'—')}</span>
+        </div>
+        <div class="mt-3 text-sm text-soft" style="display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden">${esc(v.notes||'No notes')}</div>
+        <div class="flex items-center justify-between mt-4 pt-3 border-t border-glass gap-2">
+          <div class="flex items-center gap-2 min-w-0 flex-1" title="Visited by ${esc(mgr.name)}">
+            <span class="w-6 h-6 rounded-full grid place-items-center text-[10px] font-bold shrink-0" style="background:${mgr.color}22;color:${mgr.color}">${initials(mgr.name)}</span>
+            <span class="text-soft text-[11px] truncate">${esc(mgr.name)}</span>
+          </div>
+          <div class="flex items-center gap-1 shrink-0" onclick="event.stopPropagation()">
+            ${v.photos&&v.photos.length?`<span class="text-soft text-xs">📷${v.photos.length}</span>`:''}
+            ${v.followDate?`<span class="text-soft text-[11px]">↗${Fmt.dateShort(v.followDate)}</span>`:''}
+            ${!isAdmin?`<button class="btn btn-ghost p-1.5 text-sm" title="Edit" onclick="openVisitModal('${v.id}')">✎</button>
+            <button class="btn btn-ghost p-1.5 text-sm" title="Delete" onclick="askDeleteVisit('${v.id}')">🗑️</button>`:''}
+          </div>
+        </div>
+      </div>`;
+    }).join('');
+  }
+
+  const pager=$('#visitsPager');
+  if(totalPages<=1){ pager.innerHTML=`<span class="text-soft text-xs">${all.length} visit(s)</span>`; return; }
+  let html=`<button class="btn btn-ghost px-3 py-1.5 ${State.page===1?'opacity-40':''}" onclick="gotoVisitPage(${State.page-1})">‹</button>`;
+  for(let i=1;i<=totalPages;i++){
+    html+=`<button class="btn ${i===State.page?'btn-primary':'btn-ghost'} px-3 py-1.5" onclick="gotoVisitPage(${i})">${i}</button>`;
+  }
+  html+=`<button class="btn btn-ghost px-3 py-1.5 ${State.page===totalPages?'opacity-40':''}" onclick="gotoVisitPage(${State.page+1})">›</button>`;
+  pager.innerHTML=html;
+}
+window.gotoVisitPage=function(p){ const tp=Math.max(1,Math.ceil(getFilteredVisits().length/State.pageSize));
+  State.page=Math.min(Math.max(1,p),tp); paintVisits(); };
+
+/* ---- Visit detail modal ---- */
+window.openVisitDetail=function(id){
+  const v=DB.getVisits().find(x=>x.id===id); if(!v) return;
+  const c=visitShop(v);
+  const mgr=DB.getUsers().find(u=>u.id===v.manager)||{name:'?',color:'#888'};
+  const os=ORDER_STYLE[v.orderStatus]||ORDER_STYLE['No Order'];
+  const oc=OUTCOME_STYLE[v.outcome]||OUTCOME_STYLE['Successful'];
+  const isAdmin=State.user.role==='admin';
+  const row=(l,val)=>`<div><div class="text-soft text-[11px] uppercase tracking-wide">${l}</div><div class="font-medium text-sm mt-0.5">${val||'—'}</div></div>`;
+  $('#detailModalTitle').textContent='Visit Details';
+  $('#detailBody').innerHTML=`
+    <div class="flex items-start justify-between gap-3 mb-4">
+      <div>
+        <div class="font-display text-2xl font-bold">${esc(c.shop)}</div>
+        <div class="text-soft text-sm">${c.owner?'👤 '+esc(c.owner):''}${c.owner&&(c.area||c.city)?' · ':''}${c.area||c.city?'📍 '+esc([c.area,c.city].filter(Boolean).join(' · ')):''}</div>
+      </div>
+      <div class="flex flex-col items-end gap-1">
+        <span class="badge badge-visit">🔁 CLIENT VISIT</span>
+        ${c._unregistered?'<span class="badge" style="background:#f59e0b22;color:#f59e0b">Unregistered</span>':''}
+        <span class="badge" style="background:${oc.bg};color:${oc.c}">${esc(v.outcome)}</span>
+        <span class="badge" style="background:${os.bg};color:${os.c}">${esc(v.orderStatus)}</span>
+      </div>
+    </div>
+    ${c._unregistered&&!isAdmin?`<div class="glass-soft rounded-xl p-3 mb-4 text-xs">
+      💡 This shop is not in your client list. <a class="text-brand-400 font-semibold cursor-pointer" onclick="closeDetail();openClientModal();setTimeout(()=>{document.getElementById('cShop').value='${esc(c.shop).replace(/'/g,'&#39;')}';document.getElementById('cOwner').value='${esc(c.owner).replace(/'/g,'&#39;')}';document.getElementById('cContact').value='${esc(c.contact).replace(/'/g,'&#39;')}';document.getElementById('cArea').value='${esc(c.area)}';document.getElementById('cCity').value='${esc(c.city).replace(/'/g,'&#39;')}';},150)">＋ Register as new client</a>
+    </div>`:''}
+    <div class="grid grid-cols-2 sm:grid-cols-3 gap-4 glass-soft rounded-2xl p-4">
+      ${row('Manager',`<span style="color:${mgr.color}">${esc(mgr.name)}</span>`)}
+      ${row('Visit Date',Fmt.date(v.date))}
+      ${row('Duration',Fmt.durationLabel(v)||'—')}
+      ${row('Check-In',v.checkin||'—')}
+      ${row('Check-Out',v.checkout||'—')}
+      ${row('Follow-Up',v.followDate?Fmt.date(v.followDate):'—')}
+      ${c.contact?row('Contact',esc(c.contact)):''}
+    </div>
+    <div class="mt-4 glass-soft rounded-2xl p-4">${row('Discussion Notes',esc(v.notes))}</div>
+    ${v.photos&&v.photos.length?`<div class="mt-4"><div class="text-soft text-[11px] uppercase mb-2">Photos</div>
+      <div class="flex flex-wrap gap-2">${v.photos.map(p=>`<img src="${p}" class="w-24 h-24 object-cover rounded-xl border border-glass"/>`).join('')}</div></div>`:''}
+    <div class="flex gap-2 mt-5">
+      ${c.id?`<button class="btn btn-ghost flex-1 justify-center py-2.5" onclick="closeDetail();openClientDetail('${c.id}')">🏪 View Client</button>`:''}
+      ${!isAdmin?`<button class="btn btn-ghost flex-1 justify-center py-2.5" onclick="closeDetail();openVisitModal('${v.id}')">✎ Edit Visit</button>
+      <button class="btn flex-1 justify-center py-2.5" style="background:#f43f5e22;color:#f43f5e" onclick="closeDetail();askDeleteVisit('${v.id}')">🗑️ Delete</button>`:''}
+    </div>`;
+  show('#detailModal');
+};
+
+/* ---- Visit modal (with searchable client picker) ---- */
+let formMedia = { photos:[], gps:null };
+let selectedClientId = null;
+
+function openVisitModal(id, prefillClientId){
+  formMedia={ photos:[], gps:null };
+  selectedClientId = null;
+  const f=$('#visitForm'); f.reset();
+  $('#photoPreview').innerHTML='';
+  $('#vClientList').classList.add('hide');
+  $('#vClientChip').classList.add('hide');
+  $('#vManualHint').classList.add('hide');
+  $('#vManualFields').classList.remove('hide');
+
+  // populate admin manager dropdown
+  const isAdmin=State.user.role==='admin';
+  if(isAdmin){
+    const mgrs=DB.getUsers().filter(u=>u.role==='manager');
+    $('#vManager').innerHTML=mgrs.map(m=>`<option value="${m.id}">${esc(m.name)}</option>`).join('');
+    $('#vManagerWrap').classList.remove('hide');
+  } else {
+    $('#vManagerWrap').classList.add('hide');
+  }
+
+  if(id){
+    const v=DB.getVisits().find(x=>x.id===id);
+    if(!v){ Toast.show('Visit not found','error'); return; }
+    $('#visitModalTitle').innerHTML=`<span class="badge badge-visit">🔁 CLIENT VISIT</span> Edit Visit`;
+    $('#vId').value=v.id;
+    if(v.clientId){
+      setSelectedClient(v.clientId);
+    } else {
+      // unregistered visit — restore the typed fields
+      $('#vClientSearch').value=v.shop||'';
+      $('#vOwner').value=v.owner||'';
+      $('#vContact').value=v.contact||'';
+      $('#vArea').value=v.area||'';
+      $('#vCity').value=v.city||'';
+      $('#vManualHint').classList.remove('hide');
+    }
+    $('#vDate').value=v.date;
+    $('#vIn').value=v.checkin||''; $('#vOut').value=v.checkout||'';
+    $('#vOrderStatus').value=v.orderStatus||'No Order';
+    $('#vOutcome').value=v.outcome||'Successful';
+    $('#vFollowDate').value=v.followDate||'';
+    $('#vNotes').value=v.notes||'';
+    if(isAdmin) $('#vManager').value=v.manager;
+    formMedia.photos = [...(v.photos||[])];
+    formMedia.gps = v.gps||null;
+    renderPhotoPreview();
+  } else {
+    $('#visitModalTitle').innerHTML=`<span class="badge badge-visit">🔁 CLIENT VISIT</span> Log Client Visit`;
+    $('#vId').value='';
+    $('#vDate').value=todayStr();
+    $('#vOrderStatus').value='No Order';
+    $('#vOutcome').value='Successful';
+    if(prefillClientId) setSelectedClient(prefillClientId);
+  }
+  show('#visitModal');
+  setTimeout(()=>{ if(!selectedClientId) $('#vClientSearch').focus(); }, 100);
+}
+
+function setSelectedClient(cid){
+  const c=findClient(cid); if(!c){ selectedClientId=null; return; }
+  selectedClientId=cid;
+  $('#vClientSearch').value=c.shop;          // keep typed value showing
+  $('#vClientChip').classList.remove('hide');
+  $('#vClientChipName').textContent=c.shop;
+  $('#vClientChipMeta').textContent=`${c.owner||''} · ${[c.area,c.city].filter(Boolean).join(' · ')}`;
+  $('#vClientList').classList.add('hide');
+  // auto-fill the manual fields from the linked client (read-only feel)
+  $('#vOwner').value=c.owner||'';
+  $('#vContact').value=c.contact||'';
+  $('#vArea').value=c.area||'';
+  $('#vCity').value=c.city||'';
+  $('#vManualHint').classList.add('hide');
+  // collapse manual fields since they're now derived from the linked client
+  $('#vManualFields').classList.add('hide');
+}
+function clearSelectedClient(){
+  selectedClientId=null;
+  $('#vClientChip').classList.add('hide');
+  $('#vManualFields').classList.remove('hide');
+  $('#vClientSearch').value=''; $('#vClientSearch').focus();
+}
+
+function searchClientsForVisit(q){
+  const isAdmin=State.user.role==='admin';
+  let pool=DB.getClients();
+  if(!isAdmin) pool=pool.filter(c=>c.manager===State.user.id);
+  q=(q||'').trim().toLowerCase();
+  if(q) pool=pool.filter(c=>[c.shop,c.owner,c.area,c.city,c.contact].some(v=>String(v||'').toLowerCase().includes(q)));
+  return pool.slice(0,8);
+}
+function renderClientCombo(q){
+  const list=searchClientsForVisit(q);
+  const el=$('#vClientList');
+  const trimmed=(q||'').trim();
+  if(!list.length){
+    if(!trimmed){
+      el.classList.add('hide'); return;
+    }
+    // Free-text mode hint — no matching client found
+    el.innerHTML=`<div class="combo-item text-soft text-xs">
+      <div class="font-medium text-sm" style="color:var(--text)">📝 No match — will save as unregistered visit</div>
+      <div class="mt-0.5">Fill the optional details below, or
+        <a class="text-brand-400 font-semibold cursor-pointer" onclick="closeVisitModal();openClientModal()">＋ register as new client</a>
+      </div>
+    </div>`;
+  } else {
+    el.innerHTML=list.map(c=>`<div class="combo-item" onclick="setSelectedClient('${c.id}')">
+      <div class="font-medium text-sm">${esc(c.shop)}</div>
+      <div class="text-soft text-xs">${esc(c.owner||'')} · ${esc([c.area,c.city].filter(Boolean).join(' · '))}</div>
+    </div>`).join('') +
+    `<div class="combo-item text-soft text-[11px]" style="border-top:1px dashed var(--border)">
+      Or keep typing — will save as unregistered visit
+    </div>`;
+  }
+  el.classList.remove('hide');
+}
+window.setSelectedClient=setSelectedClient;
+
+function closeVisitModal(){ hide('#visitModal'); }
+
+function renderPhotoPreview(){
+  $('#photoPreview').innerHTML=formMedia.photos.map((p,i)=>`
+    <div class="relative">
+      <img src="${p}" class="w-16 h-16 object-cover rounded-lg border border-glass"/>
+      <button type="button" onclick="removePhoto(${i})" class="absolute -top-2 -right-2 bg-rose-500 text-white w-5 h-5 rounded-full text-xs grid place-items-center">✕</button>
+    </div>`).join('');
+}
+window.removePhoto=function(i){ formMedia.photos.splice(i,1); renderPhotoPreview(); };
+
+function handlePhotos(files){
+  Array.from(files).slice(0,4).forEach(file=>{
+    const reader=new FileReader();
+    reader.onload=e=>{
+      const img=new Image();
+      img.onload=()=>{
+        const max=640, scale=Math.min(1,max/Math.max(img.width,img.height));
+        const cv=document.createElement('canvas');
+        cv.width=img.width*scale; cv.height=img.height*scale;
+        cv.getContext('2d').drawImage(img,0,0,cv.width,cv.height);
+        formMedia.photos.push(cv.toDataURL('image/jpeg',0.7));
+        renderPhotoPreview();
+      };
+      img.src=e.target.result;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+async function saveVisit(e){
+  e.preventDefault();
+  const id=$('#vId').value;
+  const existing=id?DB.getVisits().find(x=>x.id===id):null;
+  const isAdmin=State.user.role==='admin';
+
+  const typedShop = $('#vClientSearch').value.trim();
+  if(!selectedClientId && !typedShop){
+    Toast.show('Please type or select a shop name','error'); return;
+  }
+
+  const v={
+    id: id || uid('v'),
+    clientId: selectedClientId || null,
+    // Snapshot fields are always saved — for linked visits they make exports
+    // self-contained even if the client is later renamed; for unregistered
+    // visits they ARE the only record of the shop.
+    shop: selectedClientId ? (findClient(selectedClientId)||{}).shop : typedShop,
+    owner: $('#vOwner').value.trim(),
+    contact: $('#vContact').value.trim(),
+    area: $('#vArea').value,
+    city: $('#vCity').value.trim(),
+    date: $('#vDate').value,
+    checkin: $('#vIn').value,
+    checkout: $('#vOut').value,
+    orderStatus: $('#vOrderStatus').value,
+    outcome: $('#vOutcome').value,
+    followDate: $('#vFollowDate').value,
+    notes: $('#vNotes').value.trim(),
+    photos: formMedia.photos, gps: formMedia.gps,
+    manager: existing? existing.manager : (isAdmin ? $('#vManager').value : State.user.id),
+  };
+  if(!v.date || !v.notes){ Toast.show('Date and discussion notes are required','error'); return; }
+  if(v.checkin && v.checkout && v.checkout <= v.checkin){
+    Toast.show('Check-Out must be after Check-In','error'); return;
+  }
+
+  await DB.saveVisit(v);
+  const c=v.clientId?findClient(v.clientId):null;
+  const shopLabel = c?c.shop : (v.shop+' (unregistered)');
+  await DB.log(id?'updated visit at':'logged a client visit at', shopLabel);
+  DB.pushNotif(id?'Visit updated':'New visit logged', `${shopLabel} — ${v.outcome}`, 'success');
+  Toast.show(id?'Visit updated':'Visit logged successfully','success');
+  closeVisitModal();
+}
+window.openVisitModal=openVisitModal;
+
+let pendingDeleteVisit=null;
+window.askDeleteVisit=function(id){
+  pendingDeleteVisit=id; pendingDeleteClient=null;
+  const v=DB.getVisits().find(x=>x.id===id);
+  const shop=v?visitShop(v).shop:'';
+  $('#confirmTitle').textContent='Delete this visit?';
+  $('#confirmText').textContent=`Delete the visit to "${shop}"? This cannot be undone.`;
+  show('#confirmModal');
+};
+async function doConfirmDelete(){
+  if(pendingDeleteVisit){
+    const v=DB.getVisits().find(x=>x.id===pendingDeleteVisit);
+    const shop=v?visitShop(v).shop:'';
+    await DB.deleteVisit(pendingDeleteVisit);
+    await DB.log('deleted a visit at', shop);
+    Toast.show('Visit deleted','info');
+    pendingDeleteVisit=null;
+  } else if(pendingDeleteClient){
+    const c=findClient(pendingDeleteClient);
+    await DB.deleteClient(pendingDeleteClient);
+    await DB.log('deleted a new client', c?c.shop:'');
+    Toast.show('Client and visit history deleted','info');
+    pendingDeleteClient=null;
+  } else if(pendingDeleteManager){
+    const u=DB.getUsers().find(x=>x.id===pendingDeleteManager);
+    if(u){
+      const users=DB.getUsers().filter(x=>x.id!==pendingDeleteManager);
+      Store.write(LS.users, users);
+      if(USE_FIREBASE && fb){ try{ await rtdbRemove('appUsers/'+pendingDeleteManager); }catch(e){ console.warn(e); } }
+      await DB.log('deleted manager', u.name);
+      Toast.show('Manager deleted','info');
+      emit('datachanged',{}); if(State.view==='managers') renderManagers();
+    }
+    pendingDeleteManager=null;
+  }
+  hide('#confirmModal');
+}
+
+/* =====================================================================
+   SECTION 10 — ANALYTICS VIEW
+   Focused on manager monitoring: new clients vs visits trends + ranking.
+   ===================================================================== */
+function renderAnalytics(){
+  const isAdmin=State.user.role==='admin';
+  $('#view-analytics').innerHTML=`
+    <div class="grid lg:grid-cols-2 gap-3">
+      ${chartCard('Last 14 Days — New Clients','aNewDaily','#34d399')}
+      ${chartCard('Last 14 Days — Client Visits','aVisitDaily','#60a5fa')}
+      ${chartCard('Last 4 Weeks — New Clients','aNewWeek','#34d399')}
+      ${chartCard('Last 4 Weeks — Client Visits','aVisitWeek','#60a5fa')}
+      ${chartCard('Last 6 Months — Comparison','aMonthCompare','#e0a458','bar')}
+      ${chartCard('Visit Outcomes','aOutcome','#c06b8e','doughnut')}
+    </div>
+    ${isAdmin?`
+    <div class="glass rounded-2xl p-5 mt-3">
+      <h3 class="font-display text-lg font-bold mb-1">Manager Comparison</h3>
+      <p class="text-soft text-xs mb-4">Side-by-side: who's bringing in new clients vs. visiting more</p>
+      <div style="height:300px"><canvas id="aManagerCompare"></canvas></div>
+    </div>
+    <div class="glass rounded-2xl p-5 mt-3">
+      <h3 class="font-display text-lg font-bold mb-3">Manager Ranking & Productivity</h3>
+      <div id="rankTable"></div>
+    </div>`:''}
+  `;
+  drawAnalyticsCharts();
+  if(isAdmin) drawRanking();
+}
+
+function chartCard(title,id,color,type){
+  return `<div class="glass rounded-2xl p-5">
+    <div class="flex items-center justify-between mb-3">
+      <h3 class="font-semibold">${title}</h3>
+      <span class="w-3 h-3 rounded-full" style="background:${color}"></span>
+    </div>
+    <div style="height:${type==='doughnut'?'220px':'240px'}"><canvas id="${id}"></canvas></div>
+  </div>`;
+}
+
+function drawRanking(){
+  const cards=managerCards();
+  $('#rankTable').innerHTML=cards.map((m,i)=>`
+    <div class="flex items-center gap-4 py-3 ${i<cards.length-1?'border-b border-glass':''}">
+      <div class="font-display text-2xl font-bold w-8 text-center" style="color:${i===0?'#e0a458':'var(--text-soft)'}">${i+1}</div>
+      <div class="w-9 h-9 rounded-full grid place-items-center text-xs font-bold" style="background:${m.user.color}22;color:${m.user.color}">${initials(m.user.name)}</div>
+      <div class="flex-1 min-w-0">
+        <div class="font-semibold truncate">${esc(m.user.name)}</div>
+        <div class="text-soft text-xs">
+          <span style="color:var(--accent-new)">${m.stats.newClients} new clients</span> ·
+          <span style="color:var(--accent-visit)">${m.stats.visits} visits</span> ·
+          ${m.stats.ordersPlaced} orders
+        </div>
+      </div>
+      <div class="hidden sm:block w-32"><div class="h-2 rounded-full overflow-hidden" style="background:rgba(150,150,150,.15)">
+        <div class="h-full rounded-full" style="width:${m.bar}%;background:linear-gradient(90deg,${m.user.color},#e0a458)"></div></div></div>
+      <div class="font-display text-xl font-bold w-12 text-right" style="color:${m.user.color}">${m.score}</div>
+    </div>`).join('') || `<div class="text-soft text-sm text-center py-6">No managers yet</div>`;
+}
+
+/* =====================================================================
+   SECTION 11 — CHART.JS RENDERERS
+   ===================================================================== */
+function chartTheme(){
+  const dark=document.documentElement.classList.contains('dark');
+  return { grid: dark?'rgba(255,255,255,.07)':'rgba(0,0,0,.07)',
+           text: dark?'#9aa3b2':'#6f6353' };
+}
+function destroyChart(key){ if(State.charts[key]){ State.charts[key].destroy(); delete State.charts[key]; } }
+function baseOpts(){
+  const t=chartTheme();
+  return { responsive:true, maintainAspectRatio:false,
+    animation:{ duration:900, easing:'easeOutQuart' },
+    plugins:{ legend:{ labels:{ color:t.text, font:{family:'Plus Jakarta Sans'} } } },
+    scales:{ x:{ grid:{color:t.grid}, ticks:{color:t.text} }, y:{ grid:{color:t.grid}, ticks:{color:t.text}, beginAtZero:true } } };
+}
+
+function lastNDates(n){ const out=[]; for(let i=n-1;i>=0;i--){ const d=new Date(); d.setDate(d.getDate()-i); out.push(d.toISOString().slice(0,10)); } return out; }
+
+function drawTrendChart(){
+  const c=$('#dashTrend'); if(!c||!window.Chart) return;
+  destroyChart('trend');
+  const dates=lastNDates(7);
+  const clients=scopedClients(), visits=scopedVisits();
+  const newData=dates.map(d=>clients.filter(x=>tsToDate(x.createdAt)===d).length);
+  const visData=dates.map(d=>visits.filter(x=>x.date===d).length);
+  const labels=dates.map(d=>new Date(d+'T00:00:00').toLocaleDateString('en-GB',{weekday:'short'}));
+  State.charts.trend=new Chart(c.getContext('2d'),{ type:'bar',
+    data:{ labels,
+      datasets:[
+        { label:'New Clients', data:newData, backgroundColor:'#34d399', borderRadius:6, maxBarThickness:18 },
+        { label:'Client Visits', data:visData, backgroundColor:'#60a5fa', borderRadius:6, maxBarThickness:18 },
+      ] },
+    options:{ ...baseOpts() } });
+}
+
+function drawAnalyticsCharts(){
+  if(!window.Chart) return;
+  const t=chartTheme();
+  const clients=scopedClients(), visits=scopedVisits();
+
+  // 14-day new clients
+  destroyChart('aNewDaily');
+  const d14=lastNDates(14);
+  State.charts.aNewDaily=new Chart($('#aNewDaily'),{ type:'bar',
+    data:{ labels:d14.map(d=>new Date(d+'T00:00:00').getDate()),
+      datasets:[{ data:d14.map(d=>clients.filter(x=>tsToDate(x.createdAt)===d).length),
+        backgroundColor:'#34d399', borderRadius:6, maxBarThickness:18 }] },
+    options:{ ...baseOpts(), plugins:{legend:{display:false}} } });
+
+  // 14-day visits
+  destroyChart('aVisitDaily');
+  State.charts.aVisitDaily=new Chart($('#aVisitDaily'),{ type:'bar',
+    data:{ labels:d14.map(d=>new Date(d+'T00:00:00').getDate()),
+      datasets:[{ data:d14.map(d=>visits.filter(v=>v.date===d).length),
+        backgroundColor:'#60a5fa', borderRadius:6, maxBarThickness:18 }] },
+    options:{ ...baseOpts(), plugins:{legend:{display:false}} } });
+
+  // Weekly (last 4 weeks)
+  const weeks=[0,1,2,3].map(w=>{ const start=new Date(); start.setDate(start.getDate()-((3-w)*7)-((new Date().getDay()+6)%7));
+    start.setHours(0,0,0,0); const end=new Date(start); end.setDate(start.getDate()+6);
+    const ss=start.toISOString().slice(0,10), es=end.toISOString().slice(0,10);
+    return { label:'W'+(w+1), ss, es }; });
+
+  destroyChart('aNewWeek');
+  State.charts.aNewWeek=new Chart($('#aNewWeek'),{ type:'line',
+    data:{ labels:weeks.map(w=>w.label),
+      datasets:[{ data:weeks.map(w=>clients.filter(c=>{ const d=tsToDate(c.createdAt); return d>=w.ss&&d<=w.es; }).length),
+        borderColor:'#34d399', backgroundColor:'rgba(52,211,153,.15)', fill:true, tension:.4, borderWidth:3, pointRadius:5 }] },
+    options:{ ...baseOpts(), plugins:{legend:{display:false}} } });
+
+  destroyChart('aVisitWeek');
+  State.charts.aVisitWeek=new Chart($('#aVisitWeek'),{ type:'line',
+    data:{ labels:weeks.map(w=>w.label),
+      datasets:[{ data:weeks.map(w=>visits.filter(v=>v.date>=w.ss&&v.date<=w.es).length),
+        borderColor:'#60a5fa', backgroundColor:'rgba(96,165,250,.15)', fill:true, tension:.4, borderWidth:3, pointRadius:5 }] },
+    options:{ ...baseOpts(), plugins:{legend:{display:false}} } });
+
+  // Monthly comparison (6 months) — both new + visits
+  destroyChart('aMonthCompare');
+  const months=[]; for(let i=5;i>=0;i--){ const d=new Date(); d.setMonth(d.getMonth()-i); months.push(d); }
+  State.charts.aMonthCompare=new Chart($('#aMonthCompare'),{ type:'bar',
+    data:{ labels:months.map(m=>m.toLocaleDateString('en-GB',{month:'short'})),
+      datasets:[
+        { label:'New Clients',
+          data:months.map(m=>clients.filter(c=>{ const x=new Date(c.createdAt); return x.getMonth()===m.getMonth()&&x.getFullYear()===m.getFullYear(); }).length),
+          backgroundColor:'#34d399', borderRadius:6, maxBarThickness:24 },
+        { label:'Client Visits',
+          data:months.map(m=>visits.filter(v=>{ const x=new Date(v.date+'T00:00:00'); return x.getMonth()===m.getMonth()&&x.getFullYear()===m.getFullYear(); }).length),
+          backgroundColor:'#60a5fa', borderRadius:6, maxBarThickness:24 }
+      ] },
+    options:{ ...baseOpts() } });
+
+  // Outcome doughnut
+  destroyChart('aOutcome');
+  const oc={}; visits.forEach(v=>{ const k=v.outcome||'—'; oc[k]=(oc[k]||0)+1; });
+  State.charts.aOutcome=new Chart($('#aOutcome'),{ type:'doughnut',
+    data:{ labels:Object.keys(oc),
+      datasets:[{ data:Object.values(oc),
+        backgroundColor:['#34d399','#f59e0b','#94a3b8','#a78bfa','#60a5fa','#e0a458'], borderWidth:0 }] },
+    options:{ responsive:true, maintainAspectRatio:false, cutout:'62%',
+      plugins:{ legend:{ position:'right', labels:{ color:t.text, boxWidth:12, font:{size:11} } } } } });
+
+  // Admin: manager comparison (grouped bar)
+  if(State.user.role==='admin'){
+    destroyChart('aManagerCompare');
+    const mgrs=DB.getUsers().filter(u=>u.role==='manager');
+    const labels=mgrs.map(m=>m.name);
+    const newData=mgrs.map(m=>DB.getClients().filter(c=>c.manager===m.id).length);
+    const visData=mgrs.map(m=>DB.getVisits().filter(v=>v.manager===m.id).length);
+    State.charts.aManagerCompare=new Chart($('#aManagerCompare'),{ type:'bar',
+      data:{ labels,
+        datasets:[
+          { label:'New Clients', data:newData, backgroundColor:'#34d399', borderRadius:6, maxBarThickness:48 },
+          { label:'Client Visits', data:visData, backgroundColor:'#60a5fa', borderRadius:6, maxBarThickness:48 },
+        ] },
+      options:{ ...baseOpts() } });
+  }
+}
+
+function redrawAllCharts(){
+  if(State.view==='dashboard') drawTrendChart();
+  if(State.view==='analytics') drawAnalyticsCharts();
+}
+
+/* =====================================================================
+   SECTION 12 — REPORTS (Daily / Weekly / Monthly + Export)
+   ===================================================================== */
+function renderReports(){
+  const isAdmin=State.user.role==='admin';
+  const mgrOpts=DB.getUsers().filter(u=>u.role==='manager').map(u=>`<option value="${u.id}">${esc(u.name)}</option>`).join('');
+  $('#view-reports').innerHTML=`
+    <div class="glass rounded-2xl p-5">
+      <h3 class="font-display text-xl font-bold mb-1">Report Builder</h3>
+      <p class="text-soft text-sm mb-4">Pick a period, filter, then export or print.</p>
+
+      <div class="flex gap-2 mb-4 flex-wrap">
+        <button class="btn btn-ghost px-4 py-2.5" data-period="day">📅 Today</button>
+        <button class="btn btn-ghost px-4 py-2.5" data-period="week">🗓️ This Week</button>
+        <button class="btn btn-ghost px-4 py-2.5" data-period="month">📆 This Month</button>
+        <button class="btn btn-ghost px-4 py-2.5" data-period="custom">⚙️ Custom</button>
+      </div>
+
+      <div class="grid sm:grid-cols-4 gap-3">
+        <div><label>From Date</label><input id="rFrom" type="date" class="mt-1"></div>
+        <div><label>To Date</label><input id="rTo" type="date" class="mt-1"></div>
+        ${isAdmin?`<div><label>Manager</label><select id="rManager" class="mt-1"><option value="all">All</option>${mgrOpts}</select></div>`:'<div></div>'}
+        <div><label>Activity Filter</label><select id="rType" class="mt-1">
+          <option value="all">All Activities</option>
+          <option value="new">New Clients Only</option>
+          <option value="visit">Client Visits Only</option>
+        </select></div>
+      </div>
+      <div class="flex flex-wrap gap-2 mt-4">
+        <button class="btn btn-primary px-4 py-2.5" onclick="generateReport()">📄 Generate</button>
+        <button class="btn btn-ghost px-4 py-2.5" onclick="exportCSV()">⬇ CSV</button>
+        <button class="btn btn-ghost px-4 py-2.5" onclick="exportExcel()">⬇ Excel</button>
+        <button class="btn btn-ghost px-4 py-2.5" onclick="exportPDF()">⬇ PDF</button>
+        <button class="btn btn-ghost px-4 py-2.5" onclick="printReport()">🖨 Print</button>
+      </div>
+    </div>
+    <div id="reportOutput" class="mt-3"></div>`;
+
+  // wire period buttons
+  $$('[data-period]').forEach(b=>b.addEventListener('click', ()=>{
+    setReportPeriod(b.dataset.period); generateReport();
+  }));
+
+  // default = this month
+  setReportPeriod(State.reportPeriod || 'month');
+  generateReport();
+}
+
+function setReportPeriod(period){
+  State.reportPeriod=period;
+  const now=new Date();
+  let from, to=todayStr();
+  if(period==='day'){ from=todayStr(); }
+  else if(period==='week'){
+    const day=(now.getDay()+6)%7;
+    const mon=new Date(now); mon.setDate(now.getDate()-day);
+    from=mon.toISOString().slice(0,10);
+  }
+  else if(period==='month'){
+    from=new Date(now.getFullYear(),now.getMonth(),1).toISOString().slice(0,10);
+  }
+  if(period!=='custom'){
+    $('#rFrom').value=from; $('#rTo').value=to;
+  }
+  $$('[data-period]').forEach(b=>b.classList.toggle('btn-primary', b.dataset.period===period));
+  $$('[data-period]').forEach(b=>b.classList.toggle('btn-ghost', b.dataset.period!==period));
+}
+
+function reportData(){
+  let clients=scopedClients(), visits=scopedVisits();
+  const from=$('#rFrom')?.value, to=$('#rTo')?.value;
+  const mgr=$('#rManager')?.value||'all';
+  const type=$('#rType')?.value||'all';
+  if(State.user.role==='admin' && mgr!=='all'){
+    clients=clients.filter(c=>c.manager===mgr);
+    visits=visits.filter(v=>v.manager===mgr);
+  }
+  if(from){ clients=clients.filter(c=>tsToDate(c.createdAt)>=from); visits=visits.filter(v=>v.date>=from); }
+  if(to){ clients=clients.filter(c=>tsToDate(c.createdAt)<=to); visits=visits.filter(v=>v.date<=to); }
+  if(type==='new') visits=[];
+  if(type==='visit') clients=[];
+  return { clients, visits, from, to };
+}
+
+function generateReport(){
+  const { clients, visits, from, to } = reportData();
+  const users=DB.getUsers();
+
+  // Build per-manager grouping
+  const groups={};
+  [...clients.map(c=>({type:'new',obj:c,manager:c.manager})),
+   ...visits.map(v=>({type:'visit',obj:v,manager:v.manager}))]
+    .forEach(item=>{ (groups[item.manager]=groups[item.manager]||[]).push(item); });
+
+  const totalHours=(visits.reduce((a,v)=>a+Fmt.duration(v),0)/60).toFixed(1);
+  const followUpsToday=visits.filter(v=>v.followDate && v.followDate===todayStr()).length;
+  const followUpsOverdue=visits.filter(v=>v.followDate && v.followDate<todayStr()).length;
+
+  let html=`<div class="glass rounded-2xl p-5">`;
+  html+=`<div class="flex items-center justify-between flex-wrap gap-3 mb-4">
+    <h3 class="font-display text-xl font-bold">Report · ${esc(State.reportPeriod==='day'?'Today':State.reportPeriod==='week'?'This Week':State.reportPeriod==='month'?'This Month':'Custom Range')}</h3>
+    <div class="text-soft text-sm">${esc(from||'…')} → ${esc(to||'…')}</div></div>`;
+
+  // KPI strip
+  html+=`<div class="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center mb-5">
+    <div class="glass rounded-xl py-3" style="border-left:3px solid var(--accent-new)">
+      <div class="font-display text-2xl font-bold" style="color:var(--accent-new)">${clients.length}</div>
+      <div class="text-soft text-[10px] uppercase font-bold tracking-wider">Total New Clients</div>
+    </div>
+    <div class="glass rounded-xl py-3" style="border-left:3px solid var(--accent-visit)">
+      <div class="font-display text-2xl font-bold" style="color:var(--accent-visit)">${visits.length}</div>
+      <div class="text-soft text-[10px] uppercase font-bold tracking-wider">Total Client Visits</div>
+    </div>
+    <div class="glass rounded-xl py-3">
+      <div class="font-display text-2xl font-bold">${totalHours}h</div>
+      <div class="text-soft text-[10px] uppercase font-bold tracking-wider">Total Hours</div>
+    </div>
+    <div class="glass rounded-xl py-3">
+      <div class="font-display text-2xl font-bold">${followUpsToday+followUpsOverdue}</div>
+      <div class="text-soft text-[10px] uppercase font-bold tracking-wider">Follow-ups (${followUpsOverdue} overdue)</div>
+    </div>
+  </div>`;
+
+  // Per-manager block
+  Object.keys(groups).forEach(mid=>{
+    const u=users.find(x=>x.id===mid)||{name:mid,color:'#888'};
+    const items=groups[mid];
+    const newItems=items.filter(i=>i.type==='new');
+    const visItems=items.filter(i=>i.type==='visit');
+    const hours=(visItems.reduce((a,i)=>a+Fmt.duration(i.obj),0)/60).toFixed(1);
+    const orders=visItems.filter(i=>i.obj.orderStatus==='Order Placed').length;
+
+    const sortedRows=items.slice().sort((a,b)=>{
+      const da=a.type==='new'?tsToDate(a.obj.createdAt):a.obj.date;
+      const db=b.type==='new'?tsToDate(b.obj.createdAt):b.obj.date;
+      return db.localeCompare(da);
+    });
+
+    const rows=sortedRows.map(item=>{
+      if(item.type==='new'){
+        const c=item.obj;
+        return `<tr style="border-top:1px solid var(--border)">
+          <td style="padding:6px 8px" class="text-xs">${Fmt.dateShort(tsToDate(c.createdAt))}</td>
+          <td style="padding:6px 8px"><span class="badge badge-new">🆕 NEW CLIENT</span></td>
+          <td style="padding:6px 8px" class="text-xs font-medium">${esc(c.shop)}</td>
+          <td style="padding:6px 8px" class="text-xs text-soft">${esc(c.area||'—')}${c.city?'<br><span class="text-soft text-[10px]">'+esc(c.city)+'</span>':''}</td>
+          <td style="padding:6px 8px" class="text-xs text-soft">${esc((c.firstMeetingNotes||'').slice(0,60))}${(c.firstMeetingNotes||'').length>60?'…':''}</td>
+        </tr>`;
+      } else {
+        const v=item.obj; const c=visitShop(v);
+        return `<tr style="border-top:1px solid var(--border)">
+          <td style="padding:6px 8px" class="text-xs">${Fmt.dateShort(v.date)}</td>
+          <td style="padding:6px 8px"><span class="badge badge-visit">🔁 VISIT</span>${c._unregistered?' <span class="badge" style="background:#f59e0b22;color:#f59e0b">Unreg</span>':''}</td>
+          <td style="padding:6px 8px" class="text-xs font-medium">${esc(c.shop)}</td>
+          <td style="padding:6px 8px" class="text-xs text-soft">${esc(c.area||'—')}${c.city?'<br><span class="text-soft text-[10px]">'+esc(c.city)+'</span>':''}</td>
+          <td style="padding:6px 8px" class="text-xs text-soft">${esc(v.outcome)} · ${esc(v.orderStatus)}</td>
+        </tr>`;
+      }
+    }).join('');
+
+    html+=`<div class="glass-soft rounded-2xl p-4 mb-3">
+      <div class="flex items-center gap-3 mb-3">
+        <div class="w-9 h-9 rounded-full grid place-items-center text-xs font-bold" style="background:${u.color}22;color:${u.color}">${initials(u.name)}</div>
+        <div class="font-semibold">${esc(u.name)}</div>
+      </div>
+      <div class="grid grid-cols-2 sm:grid-cols-5 gap-2 text-center mb-3">
+        <div class="glass rounded-xl py-2"><div class="font-bold" style="color:var(--accent-new)">${newItems.length}</div><div class="text-soft text-[10px]">New Clients</div></div>
+        <div class="glass rounded-xl py-2"><div class="font-bold" style="color:var(--accent-visit)">${visItems.length}</div><div class="text-soft text-[10px]">Client Visits</div></div>
+        <div class="glass rounded-xl py-2"><div class="font-bold">${orders}</div><div class="text-soft text-[10px]">Orders</div></div>
+        <div class="glass rounded-xl py-2"><div class="font-bold">${hours}h</div><div class="text-soft text-[10px]">Hours</div></div>
+        <div class="glass rounded-xl py-2"><div class="font-bold">${items.length}</div><div class="text-soft text-[10px]">Total Activities</div></div>
+      </div>
+      <div class="overflow-x-auto">
+        <table style="width:100%;border-collapse:collapse">
+          <thead><tr class="text-soft" style="text-align:left">
+            <th style="padding:6px 8px" class="text-[10px] uppercase">Date</th>
+            <th style="padding:6px 8px" class="text-[10px] uppercase">Type</th>
+            <th style="padding:6px 8px" class="text-[10px] uppercase">Shop</th>
+            <th style="padding:6px 8px" class="text-[10px] uppercase">Emirate / City</th>
+            <th style="padding:6px 8px" class="text-[10px] uppercase">Details</th>
+          </tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>
+    </div>`;
+  });
+
+  if(!clients.length && !visits.length) html+=`<div class="text-soft text-center py-8">No activities in this range.</div>`;
+  html+=`</div>`;
+  $('#reportOutput').innerHTML=html;
+}
+
+function reportRows(){
+  const { clients, visits } = reportData();
+  const users=DB.getUsers();
+  const out=[];
+  clients.forEach(c=>{
+    out.push({
+      Type:'NEW CLIENT',
+      Date: c.meetDate || tsToDate(c.createdAt),
+      Manager: (users.find(u=>u.id===c.manager)||{}).name||'',
+      Shop: c.shop,
+      Owner: c.owner,
+      Contact: c.contact,
+      WhatsApp: c.whatsapp||'',
+      Address: c.address,
+      Emirate: c.area,
+      City: c.city||'',
+      Outcome:'—', 'Order Status':'—',
+      'Check-In': c.checkIn||'',
+      'Check-Out': c.checkOut||'',
+      'Duration(min)': Fmt.duration(c)||'',
+      'Follow-Up':'',
+      Notes: c.firstMeetingNotes || c.notes || ''
+    });
+  });
+  visits.forEach(v=>{
+    const c=visitShop(v);
+    out.push({
+      Type: c._unregistered ? 'CLIENT VISIT (Unregistered)' : 'CLIENT VISIT',
+      Date: v.date,
+      Manager: (users.find(u=>u.id===v.manager)||{}).name||'',
+      Shop: c.shop||'',
+      Owner: c.owner||'',
+      Contact: c.contact||'',
+      WhatsApp: c.whatsapp||'',
+      Address: c.address||'',
+      Emirate: c.area||'',
+      City: c.city||'',
+      Outcome: v.outcome,
+      'Order Status': v.orderStatus,
+      'Check-In': v.checkin||'',
+      'Check-Out': v.checkout||'',
+      'Duration(min)': Fmt.duration(v),
+      'Follow-Up': v.followDate||'',
+      Notes: v.notes||''
+    });
+  });
+  return out.sort((a,b)=>String(b.Date).localeCompare(String(a.Date)));
+}
+
+function exportCSV(){
+  const rows=reportRows(); if(!rows.length){ Toast.show('No data to export','warn'); return; }
+  const headers=Object.keys(rows[0]);
+  const csv=[headers.join(','), ...rows.map(r=>headers.map(h=>`"${String(r[h]??'').replace(/"/g,'""')}"`).join(','))].join('\n');
+  download(new Blob([csv],{type:'text/csv'}), `windmill_report_${todayStr()}.csv`);
+  DB.log('exported a CSV report',''); Toast.show('CSV exported','success');
+}
+function exportExcel(){
+  const rows=reportRows(); if(!rows.length){ Toast.show('No data to export','warn'); return; }
+  const ws=XLSX.utils.json_to_sheet(rows);
+  ws['!cols']=Object.keys(rows[0]).map(()=>({wch:16}));
+  const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,ws,'Activities');
+  XLSX.writeFile(wb, `windmill_report_${todayStr()}.xlsx`);
+  DB.log('exported an Excel report',''); Toast.show('Excel exported','success');
+}
+function exportPDF(){
+  const rows=reportRows(); if(!rows.length){ Toast.show('No data to export','warn'); return; }
+  const { jsPDF }=window.jspdf; const doc=new jsPDF('l','pt','a4');
+  doc.setFont('helvetica','bold'); doc.setFontSize(18); doc.setTextColor(194,116,47);
+  doc.text('Windmill — Sales Manager Activity Report', 40, 40);
+  doc.setFontSize(10); doc.setTextColor(120); doc.setFont('helvetica','normal');
+  doc.text(`Generated ${new Date().toLocaleString('en-GB')} · ${rows.length} activities · By ${State.user.name}`, 40, 58);
+  const cols=['Type','Date','Manager','Shop','Area','Outcome','Order Status','Follow-Up'];
+  doc.autoTable({ startY:74, head:[cols], body:rows.map(r=>cols.map(c=>String(r[c]??''))),
+    styles:{ fontSize:8, cellPadding:4 }, headStyles:{ fillColor:[224,164,88], textColor:[26,18,10] },
+    alternateRowStyles:{ fillColor:[248,231,204] } });
+  doc.save(`windmill_report_${todayStr()}.pdf`);
+  DB.log('exported a PDF report',''); Toast.show('PDF exported','success');
+}
+function printReport(){
+  const out=$('#reportOutput').innerHTML;
+  const w=window.open('','_blank');
+  w.document.write(`<html><head><title>Windmill Report</title>
+    <style>body{font-family:system-ui;padding:30px;color:#2b2117}
+    h3{color:#c2742f}.glass-soft,.glass{border:1px solid #e7d3b0;border-radius:12px;padding:14px;margin-bottom:12px}
+    .grid{display:grid;gap:8px}.font-bold{font-weight:700}.text-soft{color:#777}div{font-size:13px}
+    .badge{display:inline-block;padding:2px 8px;border-radius:999px;font-size:10px;font-weight:700}
+    .badge-new{background:#d1fae5;color:#047857}.badge-visit{background:#dbeafe;color:#1d4ed8}
+    table{width:100%;border-collapse:collapse;font-size:11px}
+    th,td{padding:4px 6px;text-align:left;border-bottom:1px solid #eee}</style></head>
+    <body><h1 style="color:#c2742f;display:flex;align-items:center;gap:12px;margin:0 0 8px">
+    <svg width="34" height="34" viewBox="0 0 120 120" style="vertical-align:middle">
+      <rect width="120" height="120" rx="24" fill="#1a120a"/>
+      <path d="M28,40 L42,90 L60,50 L78,90 L92,40" stroke="#e0a458" stroke-width="9" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+      <circle cx="98" cy="32" r="2.5" fill="#e0a458" opacity="0.7"/>
+      <circle cx="106" cy="40" r="1.5" fill="#e0a458" opacity="0.5"/>
+    </svg>
+    <span>Windmill — Manager Activity Report</span></h1>
+    <p>Generated ${new Date().toLocaleString('en-GB')} by ${esc(State.user.name)}</p>${out}</body></html>`);
+  w.document.close(); w.focus(); setTimeout(()=>w.print(),350);
+  DB.log('printed a report','');
+}
+function download(blob, name){ const a=document.createElement('a'); a.href=URL.createObjectURL(blob);
+  a.download=name; a.click(); setTimeout(()=>URL.revokeObjectURL(a.href),1000); }
+
+window.generateReport=generateReport;
+window.exportCSV=exportCSV; window.exportExcel=exportExcel;
+window.exportPDF=exportPDF; window.printReport=printReport;
+
+/* =====================================================================
+   SECTION 13 — MANAGERS VIEW (admin) — CRUD + password reset
+   ===================================================================== */
+function renderManagers(){
+  const cards=managerCards(); const pres=presence();
+  $('#view-managers').innerHTML=`
+    <div class="flex items-center justify-between mb-3">
+      <div>
+        <h3 class="font-display text-xl font-bold">Team Managers</h3>
+        <p class="text-soft text-xs mt-0.5">Add, edit, or remove manager accounts and reset passwords</p>
+      </div>
+      <button class="btn btn-primary px-4 py-2.5" onclick="openMgrModal()">＋ Add Manager</button>
+    </div>
+    <div class="grid md:grid-cols-2 gap-3 stagger">
+      ${cards.length?cards.map(m=>`
+      <div class="glass card-hover rounded-2xl p-5">
+        <div class="flex items-center gap-4">
+          <div class="w-16 h-16 rounded-2xl grid place-items-center font-display text-2xl font-bold" style="background:${m.user.color}22;color:${m.user.color}">${initials(m.user.name)}</div>
+          <div class="flex-1 min-w-0">
+            <div class="font-display text-xl font-bold truncate">${esc(m.user.name)}</div>
+            <div class="text-soft text-sm truncate">${esc(m.user.email||'—')}</div>
+            <div class="text-xs flex items-center gap-1.5 mt-1">
+              <span class="${pres[m.user.id]&&pres[m.user.id].online?'live-dot':'offline-dot'}"></span>
+              ${pres[m.user.id]&&pres[m.user.id].online?'Online now':((pres[m.user.id]&&pres[m.user.id].ts)?'Last seen '+Fmt.rel(pres[m.user.id].ts):'Offline')}
+            </div>
+          </div>
+          <div class="flex flex-col gap-1.5 shrink-0">
+            <button class="btn btn-ghost px-2.5 py-1.5 text-xs" onclick="openMgrModal('${m.user.id}')">✎ Edit</button>
+            <button class="btn btn-ghost px-2.5 py-1.5 text-xs" onclick="openPwdModal('${m.user.id}')">🔑 Password</button>
+            <button class="btn px-2.5 py-1.5 text-xs" style="background:#f43f5e22;color:#f43f5e;border-radius:12px;font-weight:600;cursor:pointer" onclick="deleteMgr('${m.user.id}')">🗑 Delete</button>
+          </div>
+        </div>
+        <div class="grid grid-cols-4 gap-2 mt-4 text-center">
+          <div class="glass-soft rounded-xl py-3">
+            <div class="font-display text-xl font-bold" style="color:var(--accent-new)">${m.stats.newClients}</div>
+            <div class="text-soft text-[10px]">New Clients</div>
+          </div>
+          <div class="glass-soft rounded-xl py-3">
+            <div class="font-display text-xl font-bold" style="color:var(--accent-visit)">${m.stats.visits}</div>
+            <div class="text-soft text-[10px]">Visits</div>
+          </div>
+          <div class="glass-soft rounded-xl py-3">
+            <div class="font-display text-xl font-bold">${m.stats.ordersPlaced}</div>
+            <div class="text-soft text-[10px]">Orders</div>
+          </div>
+          <div class="glass-soft rounded-xl py-3">
+            <div class="font-display text-xl font-bold">${m.score}</div>
+            <div class="text-soft text-[10px]">Score</div>
+          </div>
+        </div>
+        <div class="mt-3 text-xs text-soft">
+          🆕 ${m.stats.newClientsMonth} this month · 🔁 ${m.stats.visitsMonth} this month · ⏱ Avg ${m.stats.avgVisitMin}m/visit
+        </div>
+        <div class="grid grid-cols-2 gap-2 mt-3">
+          <button class="btn btn-ghost justify-center py-2 text-sm" onclick="viewMgrClients('${m.user.id}')">View Clients →</button>
+          <button class="btn btn-ghost justify-center py-2 text-sm" onclick="viewMgrVisits('${m.user.id}')">View Visits →</button>
+        </div>
+      </div>`).join('') : `<div class="glass rounded-2xl p-10 text-center text-soft col-span-full">No managers yet — add one to get started.</div>`}
+    </div>`;
+}
+window.viewMgrClients=function(mid){ State.clientFilters.manager=mid; State.clientFilters.q=''; State.page=1; switchView('clients'); };
+window.viewMgrVisits=function(mid){ State.visitFilters.manager=mid; State.visitFilters.q=''; State.page=1; switchView('visits'); };
+
+/* ---- Add/Edit Manager Modal ---- */
+window.openMgrModal=function(mgrId){
+  const users=DB.getUsers();
+  const u=mgrId?users.find(x=>x.id===mgrId):null;
+  const colors=['#e0a458','#56948c','#c06b8e','#60a5fa','#34d399','#f59e0b','#a78bfa','#f43f5e'];
+  const colorOpts=colors.map(c=>`<option value="${c}" ${(u&&u.color===c)||(!u&&c===colors[0])?'selected':''}>${c}</option>`).join('');
+
+  let mo=document.getElementById('mgrModal');
+  if(!mo){ mo=document.createElement('div'); mo.id='mgrModal'; document.body.appendChild(mo); }
+  mo.className='fixed inset-0 z-[120] flex items-center justify-center p-4';
+  mo.innerHTML=`
+    <div class="absolute inset-0 bg-black/55" onclick="closeMgrModal()"></div>
+    <div class="glass relative w-full max-w-md rounded-3xl p-6 animate-pop">
+      <div class="flex items-center justify-between mb-5">
+        <h3 class="font-display text-xl font-bold">${u?'Edit Manager':'Add Manager'}</h3>
+        <button class="btn btn-ghost p-2 text-lg" onclick="closeMgrModal()">✕</button>
+      </div>
+      <div class="space-y-4">
+        <div><label>Full Name *</label><input id="mgrName" class="mt-1" value="${u?esc(u.name):''}" placeholder="e.g. Sara Ahmed" /></div>
+        <div><label>Username (login) *</label><input id="mgrUsername" class="mt-1" value="${u?esc(u.username):''}" placeholder="e.g. sara" /></div>
+        ${!u?`<div><label>Password *</label><input id="mgrPass" type="password" class="mt-1" placeholder="Set a password" /></div>`:''}
+        <div><label>Email</label><input id="mgrEmail" type="email" class="mt-1" value="${u?esc(u.email||''):''}" placeholder="sara@windmillcafe.ae" /></div>
+        <div><label>Avatar Colour</label>
+          <select id="mgrColor" class="mt-1">${colorOpts}</select>
+          <div id="mgrColorPreview" class="w-8 h-8 rounded-full mt-2" style="background:${u?u.color:colors[0]}"></div>
+        </div>
+      </div>
+      <div class="flex gap-3 mt-6">
+        <button class="btn btn-ghost flex-1 justify-center py-3" onclick="closeMgrModal()">Cancel</button>
+        <button class="btn btn-primary flex-1 justify-center py-3" onclick="saveMgr('${mgrId||''}')">Save</button>
+      </div>
+    </div>`;
+  document.getElementById('mgrColor').addEventListener('change',e=>{
+    document.getElementById('mgrColorPreview').style.background=e.target.value; });
+};
+window.closeMgrModal=function(){ const m=document.getElementById('mgrModal'); if(m) m.remove(); };
+
+window.saveMgr=async function(mgrId){
+  const name=document.getElementById('mgrName').value.trim();
+  const username=document.getElementById('mgrUsername').value.trim().toLowerCase();
+  const email=document.getElementById('mgrEmail').value.trim();
+  const color=document.getElementById('mgrColor').value;
+  if(!name||!username){ Toast.show('Name and username are required','error'); return; }
+
+  const users=DB.getUsers();
+  if(mgrId){
+    const u=users.find(x=>x.id===mgrId); if(!u) return;
+    if(username!==u.username && users.find(x=>x.username===username && x.id!==mgrId)){
+      Toast.show('Username already taken','error'); return;
+    }
+    u.name=name; u.username=username; u.email=email; u.color=color;
+    Store.write(LS.users, users);
+    const sess=Store.read(LS.session, null);
+    if(sess && sess.id===mgrId){
+      sess.name=name; sess.username=username; sess.email=email; sess.color=color;
+      Store.write(LS.session, sess);
+      if(State.user && State.user.id===mgrId){
+        State.user.name=name; State.user.username=username; State.user.color=color;
+        $('#sideName').textContent=name; $('#sideAvatar').textContent=initials(name); $('#sideAvatar').style.background=color;
+      }
+    }
+    if(USE_FIREBASE && fb){ try{ await rtdbSet('appUsers/'+mgrId, u); }catch(e){ console.warn(e); } }
+    Toast.show('Manager updated','success');
+  } else {
+    const pass=document.getElementById('mgrPass').value;
+    if(!pass){ Toast.show('Password required','error'); return; }
+    if(users.find(x=>x.username===username)){ Toast.show('Username already exists','error'); return; }
+    const newUser={ id:'mgr_'+Date.now(), username, password:pass, name, role:'manager', email, color };
+    users.push(newUser);
+    Store.write(LS.users, users);
+    if(USE_FIREBASE && fb){ try{ await rtdbSet('appUsers/'+newUser.id, newUser); }catch(e){ console.warn(e); } }
+    Toast.show('Manager added','success');
+  }
+  closeMgrModal();
+  emit('datachanged',{}); renderManagers();
+};
+
+window.openPwdModal=function(mgrId){
+  const u=DB.getUsers().find(x=>x.id===mgrId); if(!u) return;
+  let pm=document.getElementById('pwdModal');
+  if(!pm){ pm=document.createElement('div'); pm.id='pwdModal'; document.body.appendChild(pm); }
+  pm.className='fixed inset-0 z-[120] flex items-center justify-center p-4';
+  pm.innerHTML=`
+    <div class="absolute inset-0 bg-black/55" onclick="closePwdModal()"></div>
+    <div class="glass relative w-full max-w-sm rounded-3xl p-6 animate-pop">
+      <div class="flex items-center justify-between mb-5">
+        <h3 class="font-display text-xl font-bold">Reset Password</h3>
+        <button class="btn btn-ghost p-2 text-lg" onclick="closePwdModal()">✕</button>
+      </div>
+      <p class="text-soft text-sm mb-4">Setting new password for <b>${esc(u.name)}</b></p>
+      <div class="space-y-3">
+        <div><label>New Password *</label><input id="pwdNew" type="password" class="mt-1" placeholder="New password" /></div>
+        <div><label>Confirm Password *</label><input id="pwdConfirm" type="password" class="mt-1" placeholder="Repeat password" /></div>
+      </div>
+      <div class="flex gap-3 mt-6">
+        <button class="btn btn-ghost flex-1 justify-center py-3" onclick="closePwdModal()">Cancel</button>
+        <button class="btn btn-primary flex-1 justify-center py-3" onclick="savePwd('${mgrId}')">Update Password</button>
+      </div>
+    </div>`;
+};
+window.closePwdModal=function(){ const m=document.getElementById('pwdModal'); if(m) m.remove(); };
+window.savePwd=async function(mgrId){
+  const np=document.getElementById('pwdNew').value;
+  const cp=document.getElementById('pwdConfirm').value;
+  if(!np){ Toast.show('Enter a new password','error'); return; }
+  if(np!==cp){ Toast.show('Passwords do not match','error'); return; }
+  const users=DB.getUsers(); const u=users.find(x=>x.id===mgrId); if(!u) return;
+  u.password=np; Store.write(LS.users, users);
+  if(USE_FIREBASE && fb){ try{ await rtdbSet('appUsers/'+mgrId, u); }catch(e){ console.warn(e); } }
+  Toast.show('Password updated','success');
+  closePwdModal();
+};
+
+let pendingDeleteManager=null;
+window.deleteMgr=function(mgrId){
+  const u=DB.getUsers().find(x=>x.id===mgrId); if(!u) return;
+  pendingDeleteManager=mgrId; pendingDeleteVisit=null; pendingDeleteClient=null;
+  $('#confirmTitle').textContent='Delete this manager?';
+  $('#confirmText').textContent=`Delete "${u.name}"? Their clients and visits will remain in the system.`;
+  show('#confirmModal');
+};
+
+/* =====================================================================
+   SECTION 14 — MY PROFILE (all users)
+   ===================================================================== */
+function openMyProfileModal(){
+  const u=State.user; if(!u) return;
+  let mo=document.getElementById('myProfileModal');
+  if(!mo){ mo=document.createElement('div'); mo.id='myProfileModal'; document.body.appendChild(mo); }
+  mo.className='fixed inset-0 z-[130] flex items-center justify-center p-4';
+  mo.innerHTML=`
+    <div class="absolute inset-0 bg-black/60" onclick="closeMyProfileModal()"></div>
+    <div class="glass relative w-full max-w-sm rounded-3xl p-6 animate-pop">
+      <div class="flex items-center justify-between mb-5">
+        <h3 class="font-display text-xl font-bold">My Profile</h3>
+        <button class="btn btn-ghost p-2 text-lg" onclick="closeMyProfileModal()">✕</button>
+      </div>
+      <div class="flex justify-center mb-5">
+        <div id="profAvatarPrev" class="w-16 h-16 rounded-2xl grid place-items-center font-display text-2xl font-bold"
+          style="background:${u.color||'#e0a458'}22;color:${u.color||'#e0a458'}">${initials(u.name)}</div>
+      </div>
+      <div class="space-y-4">
+        <div><label>Full Name *</label><input id="profName" class="mt-1" value="${esc(u.name)}" /></div>
+        <div><label>Username *</label><input id="profUsername" class="mt-1" value="${esc(u.username||u.id)}" autocomplete="username" /></div>
+        <div class="border-t border-glass pt-4">
+          <div class="text-soft text-xs font-semibold uppercase tracking-wide mb-3">Change Password <span class="normal-case font-normal">(leave blank to keep current)</span></div>
+          <div class="space-y-3">
+            <div><label>New Password</label><input id="profPassNew" type="password" class="mt-1" autocomplete="new-password" /></div>
+            <div><label>Confirm Password</label><input id="profPassConfirm" type="password" class="mt-1" autocomplete="new-password" /></div>
+          </div>
+        </div>
+      </div>
+      <div id="profError" class="hide text-rose-400 text-sm font-medium mt-3"></div>
+      <div class="flex gap-3 mt-6">
+        <button class="btn btn-ghost flex-1 justify-center py-3" onclick="closeMyProfileModal()">Cancel</button>
+        <button class="btn btn-primary flex-1 justify-center py-3" onclick="saveMyProfile()">💾 Save</button>
+      </div>
+    </div>`;
+  document.getElementById('profName').addEventListener('input', e=>{
+    document.getElementById('profAvatarPrev').textContent=initials(e.target.value||'?');
+  });
+}
+window.closeMyProfileModal=function(){ const m=document.getElementById('myProfileModal'); if(m) m.remove(); };
+
+window.saveMyProfile=async function(){
+  const name=document.getElementById('profName').value.trim();
+  const username=document.getElementById('profUsername').value.trim().toLowerCase();
+  const passNew=document.getElementById('profPassNew').value;
+  const passConf=document.getElementById('profPassConfirm').value;
+  const errEl=document.getElementById('profError'); errEl.classList.add('hide');
+  if(!name||!username){ errEl.textContent='Name and username are required'; errEl.classList.remove('hide'); return; }
+  const users=DB.getUsers(); const myId=State.user.id;
+  if(users.find(x=>x.username===username && x.id!==myId)){
+    errEl.textContent='Username is already taken'; errEl.classList.remove('hide'); return;
+  }
+  if(passNew){
+    if(passNew.length<4){ errEl.textContent='Password must be at least 4 characters'; errEl.classList.remove('hide'); return; }
+    if(passNew!==passConf){ errEl.textContent='Passwords do not match'; errEl.classList.remove('hide'); return; }
+  }
+  const u=users.find(x=>x.id===myId); if(!u) return;
+  u.name=name; u.username=username; if(passNew) u.password=passNew;
+  Store.write(LS.users, users);
+  State.user.name=name; State.user.username=username;
+  const sess=Store.read(LS.session, null);
+  if(sess){ sess.name=name; sess.username=username; Store.write(LS.session, sess); }
+  $('#sideName').textContent=name; $('#sideAvatar').textContent=initials(name);
+  if(USE_FIREBASE && fb){ try{ await rtdbSet('appUsers/'+myId, u); }catch(e){ console.warn(e); } }
+  DB.log('updated their profile','');
+  Toast.show('Profile updated 🎉','success');
+  closeMyProfileModal();
+};
+
+/* =====================================================================
+   SECTION 15 — ACTIVITY LOG VIEW
+   ===================================================================== */
+function renderActivity(){
+  $('#view-activity').innerHTML=`
+    <div class="glass rounded-2xl p-5">
+      <div class="flex items-center justify-between mb-4 flex-wrap gap-3">
+        <h3 class="font-display text-xl font-bold flex items-center gap-2"><span class="live-dot"></span> Activity Log</h3>
+        <select id="actFilter" class="!w-auto">
+          <option value="all">All Activities</option>
+          <option value="new">New Clients Only</option>
+          <option value="visit">Client Visits Only</option>
+        </select>
+      </div>
+      <div id="fullFeed" class="space-y-1"></div>
+    </div>`;
+  $('#actFilter').value=State.activityFilters.type;
+  $('#actFilter').addEventListener('change', e=>{ State.activityFilters.type=e.target.value; paintActivityList(); });
+  paintActivityList();
+}
+
+function paintActivityList(){
+  let act=DB.getActivity();
+  if(State.user.role!=='admin') act=act.filter(a=>a.userId===State.user.id);
+  const filt=State.activityFilters.type;
+  if(filt==='new')   act=act.filter(a=>(a.action||'').includes('new client'));
+  if(filt==='visit') act=act.filter(a=>(a.action||'').includes('visit'));
+  const el=$('#fullFeed');
+  el.innerHTML=act.length?act.map(a=>{
+    const isNew=(a.action||'').includes('new client');
+    const isVisit=(a.action||'').includes('visit');
+    const tag = isNew ? `<span class="badge badge-new">🆕 NEW</span>` : isVisit ? `<span class="badge badge-visit">🔁 VISIT</span>` : '';
+    return `<div class="flex items-start gap-3 py-2.5 border-b border-glass text-sm">
+      <div class="w-8 h-8 rounded-full grid place-items-center text-xs font-bold shrink-0" style="background:#e0a45822;color:#e0a458">${initials(a.user)}</div>
+      <div class="flex-1 min-w-0">
+        <div class="flex items-center gap-2 flex-wrap">
+          <span class="font-medium">${esc(a.user)}</span>
+          <span class="text-soft">${esc(a.action)}</span>
+          ${a.meta?`<span class="font-medium">${esc(a.meta)}</span>`:''}
+          ${tag}
+        </div>
+      </div>
+      <div class="text-soft text-xs whitespace-nowrap">${new Date(a.ts).toLocaleString('en-GB',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'})}</div>
+    </div>`;
+  }).join(''):`<div class="text-soft text-center py-10">No activity recorded yet</div>`;
+}
+
+/* =====================================================================
+   SECTION 16 — NAVIGATION & ROUTER
+   ===================================================================== */
+function show(sel){ $(sel).classList.remove('hide'); }
+function hide(sel){ $(sel).classList.add('hide'); }
+
+const NAV=[
+  { id:'dashboard', label:'Dashboard',     icon:'📊', roles:['admin','manager'] },
+  { id:'clients',   label:'New Clients',   icon:'🆕', roles:['admin','manager'] },
+  { id:'visits',    label:'Client Visits', icon:'🔁', roles:['admin','manager'] },
+  { id:'analytics', label:'Analytics',     icon:'📈', roles:['admin','manager'] },
+  { id:'reports',   label:'Reports',       icon:'📄', roles:['admin','manager'] },
+  { id:'managers',  label:'Managers',      icon:'👥', roles:['admin'] },
+  { id:'activity',  label:'Activity Log',  icon:'🔔', roles:['admin','manager'] },
+];
+const PAGE_META={
+  dashboard:['Dashboard','Live overview of manager activities'],
+  clients:['New Clients','Shops registered by managers'],
+  visits:['Client Visits','Follow-up visits to existing clients'],
+  analytics:['Analytics','Trends & manager comparison'],
+  reports:['Reports','Daily, weekly & monthly summaries'],
+  managers:['Managers','Team performance & accounts'],
+  activity:['Activity Log','Real-time event timeline'],
+};
+
+function buildNav(){
+  const menu=$('#navMenu');
+  menu.innerHTML=NAV.filter(n=>n.roles.includes(State.user.role)).map(n=>`
+    <button class="nav-item w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium ${n.id===State.view?'active':''}" data-view="${n.id}">
+      <span class="text-lg">${n.icon}</span> ${n.label}
+    </button>`).join('');
+  $$('.nav-item',menu).forEach(b=>b.addEventListener('click',()=>{ switchView(b.dataset.view);
+    $('#sidebar').classList.remove('open'); $('#scrim').classList.remove('show'); }));
+}
+
+const RENDERERS={ dashboard:renderDashboard, clients:renderClientsView, visits:renderVisitsView,
+  analytics:renderAnalytics, reports:renderReports, managers:renderManagers, activity:renderActivity };
+
+function switchView(view){
+  if(!NAV.find(n=>n.id===view && n.roles.includes(State.user.role))) view='dashboard';
+  State.view=view; State.page=1;
+  $$('.view').forEach(v=>v.classList.remove('active'));
+  $(`#view-${view}`).classList.add('active');
+  $$('.nav-item').forEach(b=>b.classList.toggle('active', b.dataset.view===view));
+  const meta=PAGE_META[view]; $('#pageTitle').textContent=meta[0]; $('#pageSub').textContent=meta[1];
+  RENDERERS[view]();
+  $('#content').scrollTop=0;
+}
+
+function refreshActive(){ if(State.user) RENDERERS[State.view](); refreshNotif(); refreshNetBadge(); }
+
+/* =====================================================================
+   SECTION 17 — NOTIFICATIONS, THEME, NETWORK, PRESENCE
+   ===================================================================== */
+function refreshNotif(){
+  const list=DB.getNotif(); const unread=list.filter(n=>!n.read).length;
+  const dot=$('#notifDot');
+  if(unread>0){ dot.classList.remove('hide'); dot.textContent=unread>9?'9+':unread; } else dot.classList.add('hide');
+  $('#notifList').innerHTML=list.length?list.slice(0,20).map(n=>{
+    const colors={success:'#34d399',error:'#f43f5e',info:'#e0a458',warn:'#f59e0b'};
+    return `<div class="glass-soft rounded-xl p-3 flex gap-3">
+      <span class="w-2 h-2 rounded-full mt-1.5 shrink-0" style="background:${colors[n.type]||'#e0a458'}"></span>
+      <div class="flex-1 min-w-0"><div class="font-medium text-sm">${esc(n.title)}</div>
+      <div class="text-soft text-xs truncate">${esc(n.body)}</div>
+      <div class="text-soft text-[10px] mt-0.5">${Fmt.rel(n.ts)}</div></div></div>`;
+  }).join(''):`<div class="text-soft text-sm text-center py-6">No notifications</div>`;
+}
+
+function applyTheme(t){
+  document.documentElement.classList.toggle('dark', t==='dark');
+  $('#themeToggle').textContent = t==='dark'?'☀️':'🌙';
+  Store.write(LS.theme, t);
+  setTimeout(redrawAllCharts, 60);
+}
+function toggleTheme(){ applyTheme(document.documentElement.classList.contains('dark')?'light':'dark'); }
+
+function refreshNetBadge(){
+  const online=navigator.onLine;
+  $('#netDot').className = online?'live-dot':'offline-dot';
+  $('#netText').textContent = online?'Live':'Offline';
+}
+
+let heartbeat=null;
+function startHeartbeat(){
+  clearInterval(heartbeat);
+  heartbeat=setInterval(()=>{ if(State.user) emit('datachanged',{scope:'presence'}); }, 30000);
+}
+
+/* =====================================================================
+   SECTION 18 — LOGIN / LOGOUT
+   ===================================================================== */
+function showLogin(){ hide('#app'); show('#loginScreen'); }
+function enterApp(user){
+  const fresh=DB.getUsers().find(u=>u.id===user.id);
+  if(fresh){ const { password:_, ...safe }=fresh; user=safe; Store.write(LS.session, user); }
+  State.user=user;
+  hide('#loginScreen'); show('#app');
+  $('#sideName').textContent=user.name;
+  $('#sideRole').textContent=user.role==='admin'?'Administrator (Boss)':'Sales Manager';
+  $('#sideAvatar').textContent=initials(user.name);
+  $('#sideAvatar').style.background=`${user.color||'#e0a458'}`;
+  buildNav(); switchView('dashboard');
+  DB.log('signed in',''); refreshNotif(); refreshNetBadge(); startHeartbeat();
+}
+
+async function doLogin(){
+  const u=$('#loginUser').value.trim(), p=$('#loginPass').value;
+  const err=$('#loginError'); err.classList.add('hide');
+  $('#loginBtn').textContent='Signing in…';
+  try{
+    const user=await Auth.login(u,p);
+    Toast.show('Welcome back, '+user.name.split(' ')[0]+'!','success');
+    enterApp(user);
+  }catch(e){ err.textContent=e.message||'Login failed'; err.classList.remove('hide'); }
+  finally{ $('#loginBtn').textContent='Sign In'; }
+}
+
+function doLogout(){
+  DB.log('signed out','');
+  Auth.logout(); State.user=null; clearInterval(heartbeat);
+  $('#loginUser').value=''; $('#loginPass').value='';
+  showLogin();
+}
+
+/* =====================================================================
+   SECTION 19 — EVENT WIRING
+   ===================================================================== */
+function wireEvents(){
+  $('#loginBtn').addEventListener('click', doLogin);
+  $('#loginPass').addEventListener('keydown', e=>{ if(e.key==='Enter') doLogin(); });
+  $('#loginUser').addEventListener('keydown', e=>{ if(e.key==='Enter') $('#loginPass').focus(); });
+
+  $('#logoutBtn').addEventListener('click', doLogout);
+  $('#myProfileBtn').addEventListener('click', openMyProfileModal);
+
+  // mobile sidebar
+  $('#menuToggle').addEventListener('click',()=>{ $('#sidebar').classList.add('open'); $('#scrim').classList.add('show'); });
+  $('#scrim').addEventListener('click',()=>{ $('#sidebar').classList.remove('open'); $('#scrim').classList.remove('show'); });
+
+  // theme
+  $('#themeToggle').addEventListener('click', toggleTheme);
+
+  // notifications
+  $('#notifBtn').addEventListener('click', e=>{ e.stopPropagation();
+    $('#notifPanel').classList.toggle('hide');
+    if(!$('#notifPanel').classList.contains('hide')){
+      const list=DB.getNotif().map(n=>({...n,read:true})); Store.write(LS.notif,list); refreshNotif(); }
+  });
+  $('#notifClear').addEventListener('click', ()=>{ DB.clearNotif(); });
+  document.addEventListener('click', e=>{ if(!e.target.closest('#notifBtn')&&!e.target.closest('#notifPanel')) $('#notifPanel').classList.add('hide'); });
+
+  // client modal
+  $('#clientForm').addEventListener('submit', saveClient);
+  $$('[data-close-client]').forEach(b=>b.addEventListener('click', closeClientModal));
+
+  // visit modal
+  $('#visitForm').addEventListener('submit', saveVisit);
+  $$('[data-close-visit]').forEach(b=>b.addEventListener('click', closeVisitModal));
+  $$('[data-close-detail]').forEach(b=>b.addEventListener('click', closeDetail));
+  $('#vPhotos').addEventListener('change', e=>handlePhotos(e.target.files));
+
+  // searchable client picker — typing unlinks any previous selection so user can free-type
+  $('#vClientSearch').addEventListener('input', e=>{
+    if(selectedClientId){
+      const c=findClient(selectedClientId);
+      // If user is editing away from the linked client's shop name, unlink
+      if(!c || e.target.value !== c.shop){
+        selectedClientId=null;
+        $('#vClientChip').classList.add('hide');
+        $('#vManualFields').classList.remove('hide');
+      }
+    }
+    renderClientCombo(e.target.value);
+    // If text is filled but no client matches, show the hint
+    const trimmed=e.target.value.trim();
+    if(!selectedClientId && trimmed){
+      const exact=searchClientsForVisit(trimmed).find(c=>c.shop.toLowerCase()===trimmed.toLowerCase());
+      $('#vManualHint').classList.toggle('hide', !!exact);
+    } else {
+      $('#vManualHint').classList.add('hide');
+    }
+  });
+  $('#vClientSearch').addEventListener('focus', e=>{ renderClientCombo(e.target.value); });
+  $('#vClientClear').addEventListener('click', clearSelectedClient);
+  document.addEventListener('click', e=>{
+    if(!e.target.closest('#vClientSearch') && !e.target.closest('#vClientList')){
+      $('#vClientList').classList.add('hide');
+    }
+  });
+
+  // confirm modal
+  $('#confirmOk').addEventListener('click', doConfirmDelete);
+  $('#confirmCancel').addEventListener('click', ()=>{ hide('#confirmModal'); pendingDeleteVisit=null; pendingDeleteClient=null; pendingDeleteManager=null; });
+
+  // network
+  window.addEventListener('online', ()=>{ refreshNetBadge(); Toast.show('Back online — synced','success'); });
+  window.addEventListener('offline', ()=>{ refreshNetBadge(); Toast.show('Offline — saving locally','warn'); });
+
+  // realtime data bus
+  Bus.addEventListener('datachanged', e=>{
+    if(e.detail && e.detail.scope==='presence'){ refreshNetBadge(); return; }
+    refreshActive();
+  });
+
+  // escape closes modals
+  document.addEventListener('keydown', e=>{ if(e.key==='Escape'){
+    closeClientModal(); closeVisitModal(); closeDetail(); hide('#confirmModal'); } });
+}
+
+/* =====================================================================
+   SECTION 20 — SEED & BOOT
+   ===================================================================== */
+async function seedIfEmpty(){
+  if(!USE_FIREBASE || !fb){
+    if(!localStorage.getItem(LS.users)) Store.write(LS.users, APP_USERS);
+  } else {
+    const { ref, get, set } = fb.rtdbMod;
+    try{
+      const snap = await get(ref(fb.db, 'appUsers'));
+      if(!snap.exists()){
+        const defaultsObj={}; APP_USERS.forEach(u=>{ defaultsObj[u.id]=u; });
+        await set(ref(fb.db, 'appUsers'), defaultsObj);
+        Store.write(LS.users, APP_USERS);
+      } else {
+        const remote=Object.values(snap.val());
+        const local=Store.read(LS.users, APP_USERS);
+        const merged=local.map(lu=>{ const ru=remote.find(x=>x.id===lu.id); return ru?{...lu,...ru}:lu; });
+        remote.forEach(ru=>{ if(!merged.find(x=>x.id===ru.id)) merged.push(ru); });
+        Store.write(LS.users, merged);
+      }
+    }catch(e){
+      console.warn('Could not seed Firebase users:', e);
+      if(!localStorage.getItem(LS.users)) Store.write(LS.users, APP_USERS);
+    }
+  }
+
+  // patch admin name if stale
+  const users=Store.read(LS.users, APP_USERS);
+  const adm=users.find(u=>u.id==='admin');
+  if(adm && (adm.name==='Windmill Boss' || adm.name==='Administrator')){
+    adm.name='Windmill'; Store.write(LS.users, users);
+  }
+
+  // sync session
+  const sess=Store.read(LS.session, null);
+  if(sess){
+    const fresh=users.find(u=>u.id===sess.id);
+    if(fresh && (fresh.name!==sess.name||fresh.username!==sess.username||fresh.color!==sess.color)){
+      const { password:_, ...safe }=fresh; Store.write(LS.session, safe);
+    }
+  }
+
+  /* ----- Seed Clients ----- */
+  if(!localStorage.getItem(LS.clients)){
+    const sampleClients=buildSampleClients();
+    Store.write(LS.clients, sampleClients);
+    if(USE_FIREBASE && fb){
+      try{
+        const { ref, get, set } = fb.rtdbMod;
+        const cs=await get(ref(fb.db, 'clients'));
+        if(!cs.exists()){
+          const obj={}; sampleClients.forEach(c=>{ obj[c.id]=c; });
+          await set(ref(fb.db, 'clients'), obj);
+        }
+      }catch(e){ console.warn('Could not seed clients:',e); }
+    }
+  }
+
+  /* ----- Seed Visits ----- */
+  if(!localStorage.getItem(LS.visits)){
+    const clients=Store.read(LS.clients, []);
+    const sampleVisits=buildSampleVisits(clients);
+    Store.write(LS.visits, sampleVisits);
+    if(USE_FIREBASE && fb){
+      try{
+        const { ref, get, set } = fb.rtdbMod;
+        const vs=await get(ref(fb.db, 'clientVisits'));
+        if(!vs.exists()){
+          const obj={}; sampleVisits.forEach(v=>{ obj[v.id]=v; });
+          await set(ref(fb.db, 'clientVisits'), obj);
+        }
+      }catch(e){ console.warn('Could not seed visits:',e); }
+    }
+  }
+
+  /* ----- One-time migration from old single-collection model ----- */
+  // Old key 'wm_visits' held mixed visits with `visitType` field. Migrate if present and clients hasn't been seeded by it yet.
+  const oldRaw=localStorage.getItem('wm_visits');
+  if(oldRaw && !localStorage.getItem('wm_migrated_v2')){
+    try{
+      const oldVisits=JSON.parse(oldRaw);
+      if(Array.isArray(oldVisits) && oldVisits.length){
+        // Build clients from first-occurrence of each shop
+        const shopMap={};
+        const newClients=[]; const newVisits=[];
+        oldVisits.slice().sort((a,b)=>(a.createdAt||0)-(b.createdAt||0)).forEach(ov=>{
+          const key=(ov.shop||'').trim().toLowerCase();
+          if(!key) return;
+          let cid=shopMap[key];
+          if(!cid){
+            cid='c'+(ov.id||Date.now()).toString().replace(/^v/,'');
+            shopMap[key]=cid;
+            newClients.push({
+              id:cid, shop:ov.shop, owner:ov.owner||'', contact:ov.contact||'',
+              whatsapp:'', address:ov.location||'', area:ov.location||'Other',
+              notes:'', firstMeetingNotes:ov.notes||'',
+              manager:ov.manager, createdAt:ov.createdAt||Date.now(), updatedAt:ov.updatedAt||Date.now()
+            });
+          }
+          // every old "visit" except the very first per shop becomes a CLIENT VISIT
+          if((ov.visitType||'Customer Visit')==='Customer Visit'){
+            newVisits.push({
+              id:ov.id, clientId:cid, date:ov.date, checkin:ov.checkin||'', checkout:ov.checkout||'',
+              orderStatus: ov.orders==='Yes' || ov.orders===true ? 'Order Placed' : (ov.status==='Pending'?'Pending':'No Order'),
+              outcome: ov.status==='Completed'?'Successful' : ov.status==='Follow-up'?'Follow-up Needed' : 'Successful',
+              followDate: ov.followDate||'', notes: ov.notes||'',
+              photos: ov.photos||[], gps:ov.gps||null,
+              manager: ov.manager, createdAt:ov.createdAt||Date.now(), updatedAt:ov.updatedAt||Date.now()
+            });
+          }
+        });
+        // only migrate if our new collections are still seeded-defaults (don't overwrite existing real data)
+        if(newClients.length){ Store.write(LS.clients, newClients); }
+        if(newVisits.length){ Store.write(LS.visits, newVisits); }
+        localStorage.setItem('wm_migrated_v2','1');
+        console.log('Migrated', oldVisits.length, 'old visits →', newClients.length, 'clients,', newVisits.length, 'visits');
+      }
+    }catch(e){ console.warn('Migration failed:',e); }
+  }
+
+  /* ----- v3 migration: old area "Al Quoz" / "Dubai Marina" / etc.
+     becomes emirate "Dubai" + city "Al Quoz" / "Dubai Marina" / etc. ----- */
+  if(!localStorage.getItem('wm_migrated_v3')){
+    try{
+      const EMIRATES = new Set(['Abu Dhabi','Dubai','Sharjah','Ajman','Umm Al Quwain','Ras Al Khaimah','Fujairah']);
+      // Dubai sub-areas previously used as "area"
+      const DUBAI_CITIES = new Set(['Jumeirah','Business Bay','Deira','Dubai Marina','Palm Jumeirah','Al Barsha','JLT','Al Quoz','Downtown','DIFC','Bur Dubai','Karama']);
+      const clients = Store.read(LS.clients, []);
+      let changed = 0;
+      const fixed = clients.map(c=>{
+        if(!c.area) return c;
+        // already an emirate? leave as-is (city stays whatever user already set)
+        if(EMIRATES.has(c.area)){
+          // Sharjah/Abu Dhabi were both city AND emirate in old list. Keep city blank if it wasn't set.
+          return { ...c, city: c.city||'' };
+        }
+        // legacy Dubai sub-area → move to city, set emirate to Dubai
+        if(DUBAI_CITIES.has(c.area) || c.area==='Other'){
+          changed++;
+          return { ...c, area:'Dubai', city: c.city || (c.area==='Other'?'':c.area) };
+        }
+        // unknown — leave as-is but ensure city field exists
+        return { ...c, city: c.city||'' };
+      });
+      if(changed){
+        Store.write(LS.clients, fixed);
+        // push the corrected records to RTDB too
+        if(USE_FIREBASE && fb){
+          try{
+            const obj={}; fixed.forEach(c=>{ obj[c.id]=c; });
+            await rtdbSet('clients', obj);
+          }catch(e){ console.warn('Could not sync v3 migration to Firebase:',e); }
+        }
+        console.log('v3 migration: split area→emirate+city on', changed, 'clients');
+      }
+      localStorage.setItem('wm_migrated_v3','1');
+    }catch(e){ console.warn('v3 migration failed:',e); }
+  }
+
+  /* ----- Activity & notifications ----- */
+  if(!localStorage.getItem(LS.activity)){
+    Store.write(LS.activity, [
+      {id:'a1',user:'Aarav Sharma',userId:'manager1',action:'added a new client',meta:'Corner Café',ts:Date.now()-1800000},
+      {id:'a2',user:'Layla Hassan',userId:'manager2',action:'logged a client visit at',meta:'Palm Pantry',ts:Date.now()-5400000},
+      {id:'a3',user:'Aarav Sharma',userId:'manager1',action:'logged a client visit at',meta:'The Daily Grind',ts:Date.now()-9000000},
+    ]);
+  }
+  if(!localStorage.getItem(LS.notif)){
+    Store.write(LS.notif, [
+      {id:'n1',title:'Follow-up due soon',body:'Palm Pantry — tomorrow',type:'warn',ts:Date.now()-3600000,read:false},
+      {id:'n2',title:'New client added',body:'Urban Eats — by Layla',type:'success',ts:Date.now()-7200000,read:false},
+    ]);
+  }
+}
+
+async function boot(){
+  applyTheme(Store.read(LS.theme,'dark'));
+
+  if(USE_FIREBASE){
+    try{ await initFirebase(); await attachRtdbSync(); }
+    catch(e){ console.warn('Firebase init failed, using LocalStorage:',e);
+      Toast.show('Firebase unavailable — running locally','warn'); }
+  }
+
+  await seedIfEmpty();
+  wireEvents();
+
+  const sess=Auth.current();
+  setTimeout(()=>{
+    hide('#bootLoader');
+    if(sess) enterApp(sess); else showLogin();
+  }, 700);
+
+  // periodic light refresh
+  setInterval(()=>{ if(State.user && State.view==='dashboard'){ renderFeedInto('#dashFeed',10); } }, 60000);
+}
+
+document.addEventListener('DOMContentLoaded', boot);
+</script>
+</body>
+</html>
